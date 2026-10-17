@@ -127,8 +127,13 @@ func localError(dir, what string, err error) *domain.Error {
 // HashRange returns the SHA-256 of the bytes of r covered by br. A source
 // shorter than the range is an error.
 func HashRange(r io.ReaderAt, br domain.ByteRange) ([]byte, error) {
+	return HashRangeBuf(r, br, make([]byte, hashBufSize))
+}
+
+// HashRangeBuf is HashRange using the caller's non-empty buf for reads, so
+// repeated calls need not allocate a fresh buffer each time.
+func HashRangeBuf(r io.ReaderAt, br domain.ByteRange, buf []byte) ([]byte, error) {
 	h := sha256.New()
-	buf := make([]byte, hashBufSize)
 	n, err := io.CopyBuffer(h, io.NewSectionReader(r, br.Start, br.Len()), buf)
 	if err != nil {
 		return nil, err

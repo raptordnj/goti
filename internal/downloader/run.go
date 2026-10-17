@@ -41,6 +41,9 @@ type runEnv struct {
 	bufPool   *sync.Pool                             // *[]byte of bufSize
 	writeAt   func(p []byte, off int64) (int, error) // defaults to file.WriteAt; tests inject faults
 	windowMin time.Duration                          // controller window minimum; 0 means 2s
+	// onCheckpoint is called after every n bytes written and hashed, with
+	// checkpointer.MaybeCheckpoint semantics; an error aborts the run. May be nil.
+	onCheckpoint func(ctx context.Context, n int64) error
 }
 
 // newBufPool returns a pool of bufSize byte buffers, stored as *[]byte so

@@ -128,6 +128,11 @@ func copySegment(ctx context.Context, env *runEnv, seg *Segment, body io.Reader)
 				}
 				seg.Write(p)
 				env.addBytes(int64(len(p)))
+				if env.onCheckpoint != nil {
+					if err := env.onCheckpoint(ctx, int64(len(p))); err != nil {
+						return err
+					}
+				}
 			}
 		}
 		if rerr == nil {
