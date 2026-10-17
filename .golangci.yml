@@ -1,0 +1,16 @@
+version: "2"
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - gosec
+    - revive
+  settings:
+    gosec:
+      excludes:
+        # G304: file paths come from user config/CLI arguments by design.
+        - G304
