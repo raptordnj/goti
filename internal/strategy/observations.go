@@ -39,4 +39,7 @@ type Observations struct {
 	FileName              string
 	FileNameSource        string
 	Err                   *domain.Error
+	// RangeProbeInterrupted: Err is a transport failure on a range probe
+	// (after probe 1's headers), not evidence against range support.
+	RangeProbeInterrupted bool
 }

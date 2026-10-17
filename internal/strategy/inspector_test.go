@@ -384,14 +384,36 @@ func TestInspectRedirectToPrivatePolicy(t *testing.T) {
 // the engine retries instead of downgrading to single-stream.
 func TestInspectProbe1BodyResetIsTransient(t *testing.T) {
 	obs, _ := inspect(t, faultserver.Options{Size: 20 << 20, ETag: "v1", ResetEveryNth: 1}, "/file")
-	if obs.Err == nil || obs.Err.Kind != domain.KindTransient {
-		t.Fatalf("err=%v proven=%v anomalies=%v", obs.Err, obs.RangesProven, obs.Anomalies)
-	}
+	assertRangeProbeInterrupted(t, obs)
 }
 
 func TestInspectProbe2ResetIsTransient(t *testing.T) {
 	obs, _ := inspect(t, faultserver.Options{Size: 20 << 20, ETag: "v1", ResetEveryNth: 2}, "/file")
-	if obs.Err == nil || obs.Err.Kind != domain.KindTransient {
-		t.Fatalf("err=%v proven=%v anomalies=%v", obs.Err, obs.RangesProven, obs.Anomalies)
+	assertRangeProbeInterrupted(t, obs)
+}
+
+func assertRangeProbeInterrupted(t *testing.T, obs Observations) {
+	t.Helper()
+	if obs.Err == nil || obs.Err.Kind != domain.KindTransient || !obs.RangeProbeInterrupted || obs.RangesProven {
+		t.Fatalf("err=%v interrupted=%v proven=%v anomalies=%v", obs.Err, obs.RangeProbeInterrupted, obs.RangesProven, obs.Anomalies)
+	}
+	if obs.Size != 20<<20 || !obs.SizeKnown {
+		t.Fatalf("size %d known %v", obs.Size, obs.SizeKnown)
+	}
+	if hasAnomaly(obs, "body length") {
+		t.Fatalf("interruption reported as a body-length anomaly: %v", obs.Anomalies)
+	}
+}
+
+func TestInspectOfflineIsNotRangeProbeInterrupted(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	obs, _ := newInspector(nil).Inspect(context.Background(), "http://"+addr+"/file", nil)
+	if obs.RangeProbeInterrupted {
+		t.Fatal("connection refused before any response flagged as range-probe interruption")
 	}
 }

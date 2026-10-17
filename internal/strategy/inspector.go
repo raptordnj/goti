@@ -47,7 +47,10 @@ type probe struct {
 	final   *url.URL
 	redirs  []string
 	errText string
-	errKind domain.ErrorKind // for transport errors (resp == nil)
+	errKind domain.ErrorKind // for transport errors (resp == nil or bodyErr set)
+	// bodyErr is set when the headers arrived but the connection failed
+	// while reading the probe body.
+	bodyErr string
 	// exhausted is the classified 429/503 status after the last retry; the
 	// caller decides whether it fails the inspection (probe 1 only).
 	exhausted *domain.Error
@@ -93,6 +96,13 @@ func (in *Inspector) Inspect(ctx context.Context, rawURL string, known *domain.V
 	candidate := false
 	switch resp.StatusCode {
 	case http.StatusPartialContent:
+		if p1.bodyErr != "" {
+			in.rangeProbeInterrupted(&obs, "probe 1", p1)
+			if cr, err := transport.ParseContentRange(resp.Header.Get("Content-Range")); err == nil && !cr.Unsatisfied && cr.TotalKnown {
+				obs.Size, obs.SizeKnown = cr.Total, true
+			}
+			break
+		}
 		candidate = in.checkProbe1(&obs, resp, p1.body, want1)
 	case http.StatusOK:
 		obs.Anomalies = append(obs.Anomalies, anomalyIgnoredRange)
@@ -151,6 +161,17 @@ func (in *Inspector) checkProbe1(obs *Observations, resp *http.Response, body in
 	return ok
 }
 
+// rangeProbeInterrupted records a range probe lost to a transport failure:
+// range support is unknown, so the inspection fails retryably instead of
+// settling for single-stream. The engine bounds the retries
+// (Observations.RangeProbeInterrupted).
+func (in *Inspector) rangeProbeInterrupted(obs *Observations, name string, p probe) {
+	msg := name + " failed: " + p.bodyErr
+	obs.Anomalies = append(obs.Anomalies, msg)
+	obs.Err = domain.NewError(p.errKind, msg, "", nil)
+	obs.RangeProbeInterrupted = true
+}
+
 // probe2 requests two bytes at floor(N/2) and reports whether ranges are proven.
 func (in *Inspector) probe2(ctx context.Context, obs *Observations, target string, known *domain.Validators) bool {
 	n := obs.Size
@@ -164,14 +185,17 @@ func (in *Inspector) probe2(ctx context.Context, obs *Observations, target strin
 	}
 	p2, err := in.probe(ctx, obs, target, want, ifRange, false)
 	if err != nil || p2.resp == nil {
-		if p2.errText != "" {
+		if p2.errText != "" && (err != nil || p2.exhausted != nil) {
 			obs.Anomalies = append(obs.Anomalies, "probe 2 failed: "+p2.errText)
 		}
 		if err == nil && p2.exhausted == nil && p2.errText != "" {
-			// Transport failure: range support is unknown, so the inspection
-			// fails retryably rather than settling for single-stream.
-			obs.Err = domain.NewError(p2.errKind, "probe 2 failed: "+p2.errText, "", nil)
+			p2.bodyErr = p2.errText
+			in.rangeProbeInterrupted(obs, "probe 2", p2)
 		}
+		return false
+	}
+	if p2.bodyErr != "" {
+		in.rangeProbeInterrupted(obs, "probe 2", p2)
 		return false
 	}
 	resp := p2.resp
@@ -274,11 +298,9 @@ func (in *Inspector) attempt(ctx context.Context, obs *Observations, target stri
 	if err != nil {
 		// The connection failed mid-body: a network failure, not evidence
 		// about range support (spec §8.1).
-		p.errText = transport.RedactError(err).Error()
+		p.bodyErr = transport.RedactError(err).Error()
 		p.errKind = transportErrorKind(err)
-		pr.Status, pr.BodyLen, pr.Err = resp.StatusCode, p.body, p.errText
-		obs.Probes = append(obs.Probes, pr)
-		return p, -1
+		pr.Err = p.bodyErr
 	}
 	p.resp = resp
 	pr.Status = resp.StatusCode

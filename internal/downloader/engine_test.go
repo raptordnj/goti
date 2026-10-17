@@ -880,3 +880,40 @@ func TestCancelCompleted(t *testing.T) {
 		t.Fatalf("state %s", s)
 	}
 }
+
+// errBody fails every read, like a proxy that resets ranged bodies.
+type errBody struct{ io.ReadCloser }
+
+func (errBody) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+// A server or proxy that always resets ranged response bodies must not fail
+// the task: after three interrupted inspections the engine stops waiting for
+// range proof and downloads single-stream (ruling R31).
+func TestRunRangeProbesAlwaysInterruptedFallsBackToSingle(t *testing.T) {
+	const size = 16 << 20
+	f := newEngFixture(t, faultserver.Options{Size: size}, nil)
+	f.wrapRT = func(rt http.RoundTripper) http.RoundTripper {
+		return rtFunc(func(r *http.Request) (*http.Response, error) {
+			resp, err := rt.RoundTrip(r)
+			if err == nil && r.Header.Get("Range") != "" {
+				resp.Body = errBody{resp.Body}
+			}
+			return resp, err
+		})
+	}
+	task := f.add(t, AddRequest{})
+	if err := f.run(t, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	got := f.task(t, task.ID)
+	if got.State != domain.StateCompleted || got.Strategy != domain.StrategySingle {
+		t.Fatalf("state %s strategy %s", got.State, got.Strategy)
+	}
+	checkContent(t, got.FinalPath, engSeed, size)
+	if !strings.Contains(string(got.DecisionJSON), "range probes repeatedly interrupted") {
+		t.Fatalf("decision lacks the fallback anomaly: %s", got.DecisionJSON)
+	}
+	if atts, _ := f.store.ListAttempts(context.Background(), task.ID); len(atts) != 2 {
+		t.Fatalf("%d attempts, want 2 interrupted inspections retried", len(atts))
+	}
+}

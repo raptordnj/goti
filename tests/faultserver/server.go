@@ -501,6 +501,9 @@ func (s *Server) writeBody(ctx context.Context, w http.ResponseWriter, o *Option
 	// how concurrent requests are scheduled.
 	rng := rand.New(rand.NewPCG(o.Seed, uint64(fn))) //nolint:gosec // deterministic fault injection; fn is positive
 	perPiece := o.DropProbability > 0 && !o.DropPerResponse
+	// A per-response drop cuts at an offset in [0, stop); offset 0 resets the
+	// connection after the headers but before any body byte (a 1-byte probe
+	// body can only be dropped there).
 	if o.DropPerResponse && o.DropProbability > 0 && stop > 0 && rng.Float64() < o.DropProbability {
 		cut(true, rng.Int64N(stop), endReset)
 	}

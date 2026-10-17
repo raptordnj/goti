@@ -58,6 +58,9 @@ type taskRun struct {
 	// prevRangesProven is whether the decision that produced the stored
 	// segments had proven ranges (their progress is resumable).
 	prevRangesProven bool
+	// probeInterrupts counts consecutive inspections whose only failure was
+	// a transport loss on a range probe (Observations.RangeProbeInterrupted).
+	probeInterrupts int
 
 	ckDownloaded atomic.Int64 // Downloaded as last checkpointed (T17)
 	live         atomic.Int64 // bytes written in the current run, for progress
@@ -65,6 +68,13 @@ type taskRun struct {
 	failBytes    int64        // written at the previous task-level failure
 	retries      atomic.Int32 // attempts reported, for RetryScheduled.Attempt
 }
+
+const (
+	// maxRangeProbeInterrupts is the consecutive range-probe interruptions
+	// after which the inspection falls back to "ranges not proven" (R31).
+	maxRangeProbeInterrupts = 3
+	reasonProbesInterrupted = "range probes repeatedly interrupted; falling back to single stream"
+)
 
 func newTaskRun(e *Engine, t *domain.Task) *taskRun {
 	var s taskSettings
@@ -217,10 +227,27 @@ func (r *taskRun) once(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if obs.Err != nil {
+	fallback := false
+	switch {
+	case obs.Err != nil && obs.RangeProbeInterrupted:
+		r.probeInterrupts++
+		if r.probeInterrupts < maxRangeProbeInterrupts {
+			return obs.Err
+		}
+		// Persistent interruption (e.g. a proxy resetting ranged bodies):
+		// stop waiting for range proof rather than fail the task.
+		obs.Err, obs.RangesProven = nil, false
+		obs.Anomalies = append(obs.Anomalies, reasonProbesInterrupted)
+		fallback = true
+	case obs.Err != nil:
 		return obs.Err
 	}
+	r.probeInterrupts = 0
 	d := strategy.Select(obs, r.cfg, resume)
+	if fallback {
+		d.Reasons = append(d.Reasons, reasonProbesInterrupted)
+		r.warn(reasonProbesInterrupted)
+	}
 	r.recordDecision(d)
 	if d.RemoteChanged {
 		if !r.cfg.RestartOnRemoteChange {
