@@ -3,17 +3,20 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -33,6 +36,7 @@ const (
 	exitFailed   = 1
 	exitUsage    = 2
 	exitPaused   = 3
+	shutdownWait = 10 * time.Second
 	memoryLimit  = 32 << 20
 	doublePress  = 2 * time.Second
 	maxConnsFlag = 16
@@ -49,17 +53,34 @@ commands:
 `
 
 func main() {
-	if os.Getenv("GOMEMLIMIT") == "" {
-		debug.SetMemoryLimit(memoryLimit)
-	}
 	env := map[string]string{}
-	for _, k := range []string{"SWIFTFETCH_DATA_DIR"} {
+	for _, k := range []string{"SWIFTFETCH_DATA_DIR", "GOMEMLIMIT"} {
 		if v, ok := os.LookupEnv(k); ok {
 			env[k] = v
 		}
 	}
-	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr, env))
+	applyMemoryLimit(env)
+	os.Exit(run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr, env))
 }
+
+// applyMemoryLimit caps the Go heap at 32 MiB unless GOMEMLIMIT is set; it
+// reports whether the cap was applied.
+func applyMemoryLimit(env map[string]string) bool {
+	if env["GOMEMLIMIT"] != "" {
+		return false
+	}
+	debug.SetMemoryLimit(memoryLimit)
+	return true
+}
+
+// system holds the process-level hooks run depends on, injectable for tests.
+type system struct {
+	sigs <-chan os.Signal // interrupt requests
+	exit func(code int)   // immediate process exit
+}
+
+// conns warning, spec §13.
+const connsWarning = "warning: forcing more connections via --conns can reduce throughput or trigger throttling"
 
 // app is the wired engine plus its output streams.
 type app struct {
@@ -67,11 +88,34 @@ type app struct {
 	db     *persistence.DB
 	bus    *events.Bus
 	cfg    config.Config
+	sys    system
+	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
 }
 
-func run(ctx context.Context, args []string, stdout, stderr io.Writer, env map[string]string) int {
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, env map[string]string) int {
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+	return runWith(ctx, args, stdin, stdout, stderr, env, system{sigs: sigs, exit: os.Exit})
+}
+
+// lockedWriter serializes writes from the progress and signal goroutines.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}
+
+// runWith is run with injectable process hooks.
+func runWith(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, env map[string]string, sys system) int {
+	stderr = &lockedWriter{w: stderr}
 	if len(args) == 0 {
 		outp(stderr, usageText)
 		return exitUsage
@@ -114,6 +158,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, env map[s
 	if cmd == "list" {
 		wantPos = 0
 	}
+	if (cmd == "get" || cmd == "explain") && len(pos) == 1 {
+		if u, err := url.Parse(pos[0]); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			outf(stderr, "invalid URL %s: use an absolute http or https URL\n", transport.Redact(pos[0]))
+			return exitUsage
+		}
+	}
 	if len(pos) != wantPos {
 		outf(stderr, "%s: expected %d argument(s), got %d\n%s", cmd, wantPos, len(pos), usageText)
 		return exitUsage
@@ -128,7 +178,6 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, env map[s
 				return exitUsage
 			}
 			req.Connections = n
-			outf(stderr, "warning: forcing --conns %d can reduce throughput or trigger server throttling\n", n)
 		}
 		if limit != "" {
 			if req.RateLimit, err = parseRate(limit); err != nil {
@@ -148,6 +197,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, env map[s
 		return exitUsage
 	}
 
+	if req.Connections > 0 {
+		outln(stderr, connsWarning)
+	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		outln(stderr, "cannot create data directory:", err)
 		return exitFailed
@@ -160,14 +212,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, env map[s
 	defer func() { _ = db.Close() }()
 
 	bus := events.NewBus(cfg.ProgressHz, domain.RealClock{})
-	a := &app{
-		db: db, bus: bus, cfg: cfg, stdout: stdout, stderr: stderr,
-		eng: downloader.NewEngine(downloader.EngineDeps{
-			Store: db, Config: cfg, Bus: bus, Clock: domain.RealClock{},
-			Global: ratelimit.NewBandwidth(cfg.GlobalRateLimit),
-			Conns:  ratelimit.NewSemaphore(cfg.GlobalMaxConnections),
-		}),
-	}
+	a := &app{db: db, bus: bus, cfg: cfg, sys: sys, stdin: stdin, stdout: stdout, stderr: stderr}
+	a.eng = a.newEngine(cfg)
+	// Bounded engine shutdown before the DB closes. The immediate exit on a
+	// second interrupt skips it by design (state is recovered on next run).
+	defer func() {
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownWait)
+		defer cancel()
+		_ = a.eng.Shutdown(sctx)
+	}()
 
 	switch cmd {
 	case "get":
@@ -182,6 +235,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, env map[s
 	default:
 		return a.rm(ctx, pos[0], delPartial)
 	}
+}
+
+func (a *app) newEngine(cfg config.Config) *downloader.Engine {
+	return downloader.NewEngine(downloader.EngineDeps{
+		Store: a.db, Config: cfg, Bus: a.bus, Clock: domain.RealClock{},
+		Global: ratelimit.NewBandwidth(cfg.GlobalRateLimit),
+		Conns:  ratelimit.NewSemaphore(cfg.GlobalMaxConnections),
+	})
 }
 
 // parseInterspersed parses flags that may appear before or after positional
@@ -237,41 +298,28 @@ func (a *app) resume(ctx context.Context, id string) int {
 
 // runTask runs id with progress rendering and Ctrl-C handling.
 func (a *app) runTask(ctx context.Context, id string) int {
-	sub := a.bus.Subscribe()
-	rctx, stop := context.WithCancel(ctx)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		a.renderLoop(rctx, sub, id)
-	}()
-
-	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	// The interrupt cancels the run context with cause ErrPaused, so a
+	// signal arriving before Run registers its guard is not lost.
+	rctx, cancelRun := context.WithCancelCause(ctx)
+	defer cancelRun(nil)
 	sigDone := make(chan struct{})
-	go func() {
-		select {
-		case <-sigs:
-		case <-sigDone:
-			return
-		}
-		a.eng.Pause(id)
-		select {
-		case <-sigs:
-			outln(a.stderr, "\ninterrupted; state will be recovered on next run")
-			os.Exit(exitPaused)
-		case <-time.After(doublePress):
-		case <-sigDone:
-		}
-	}()
+	go a.watchSignals(id, cancelRun, sigDone)
 
-	err := a.eng.Run(ctx, id)
-	signal.Stop(sigs)
+	sub := a.bus.Subscribe()
+	pctx, stop := context.WithCancel(ctx)
+	drawn := make(chan bool, 1)
+	go func() { drawn <- a.renderLoop(pctx, sub, id) }()
+
+	err := a.eng.Run(rctx, id)
 	close(sigDone)
 	stop()
 	sub.Close()
-	wg.Wait()
-	outln(a.stderr)
+	if <-drawn {
+		outln(a.stderr)
+	}
+	if err != nil && errors.Is(err, context.Canceled) && errors.Is(context.Cause(rctx), domain.ErrPaused) {
+		err = domain.ErrPaused // interrupted before the run registered
+	}
 
 	switch {
 	case err == nil:
@@ -284,19 +332,67 @@ func (a *app) runTask(ctx context.Context, id string) int {
 		return exitPaused
 	default:
 		if domain.KindOf(err) == domain.KindRemoteChanged && !a.cfg.RestartOnRemoteChange {
-			outln(a.stderr, "the remote file changed; rerun with --restart-if-changed to start over")
+			return a.remoteChanged(ctx, id, err)
 		}
 		return a.fail(err)
 	}
 }
 
-// renderLoop redraws the progress line for task id.
-func (a *app) renderLoop(ctx context.Context, sub *events.Subscription, id string) {
+// remoteChanged asks (when stdin is provided) whether to restart from zero.
+func (a *app) remoteChanged(ctx context.Context, id string, cause error) int {
+	if a.stdin != nil {
+		outf(a.stderr, "remote file changed — restart from zero? [y/N] ")
+		line, _ := bufio.NewReader(a.stdin).ReadString('\n')
+		if strings.EqualFold(strings.TrimSpace(line), "y") {
+			cfg := a.cfg
+			cfg.RestartOnRemoteChange = true
+			a.cfg = cfg
+			old := a.eng
+			a.eng = a.newEngine(cfg)
+			_ = old.Shutdown(ctx)
+			return a.runTask(ctx, id)
+		}
+		outln(a.stderr)
+	}
+	outln(a.stderr, "the remote file changed; rerun with --restart-if-changed to start over")
+	return a.fail(cause)
+}
+
+// watchSignals implements the two-press protocol: the first interrupt pauses
+// the run; a second within doublePress exits immediately. After the window
+// lapses the next interrupt counts as a new first press.
+func (a *app) watchSignals(id string, cancelRun context.CancelCauseFunc, done <-chan struct{}) {
+	for {
+		select {
+		case <-a.sys.sigs:
+		case <-done:
+			return
+		}
+		cancelRun(domain.ErrPaused)
+		a.eng.Pause(id)
+		timer := time.NewTimer(doublePress)
+		select {
+		case <-a.sys.sigs:
+			timer.Stop()
+			outln(a.stderr, "\ninterrupted; state will be recovered on next run")
+			a.sys.exit(exitPaused)
+			return
+		case <-timer.C:
+		case <-done:
+			timer.Stop()
+			return
+		}
+	}
+}
+
+// renderLoop redraws the progress line for task id and reports whether it
+// drew anything.
+func (a *app) renderLoop(ctx context.Context, sub *events.Subscription, id string) (drawn bool) {
 	name, strat := "", domain.Strategy("")
 	for {
 		ev, err := sub.Next(ctx)
 		if err != nil {
-			return
+			return drawn
 		}
 		if ev.TaskID() != id {
 			continue
@@ -318,6 +414,7 @@ func (a *app) renderLoop(ctx context.Context, sub *events.Subscription, id strin
 				}
 			}
 			outf(a.stderr, "\r\x1b[2K%s", renderProgress(e, name, strat))
+			drawn = true
 		}
 	}
 }
