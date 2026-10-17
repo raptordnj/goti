@@ -3,6 +3,9 @@ package strategy
 import (
 	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -147,8 +150,11 @@ func TestInspectRetryAfterCapped(t *testing.T) {
 		obs, _ := newInspector(clock).Inspect(context.Background(), srv.URL+"/file", nil)
 		done <- obs
 	}()
+	deadline := time.After(5 * time.Second)
 	for {
 		select {
+		case <-deadline:
+			t.Fatal("Inspect did not finish")
 		case obs := <-done:
 			if obs.Err != nil || obs.ProbeRetries != 1 {
 				t.Fatalf("err=%v retries=%d", obs.Err, obs.ProbeRetries)
@@ -209,8 +215,11 @@ func TestInspectRetryAfter(t *testing.T) {
 		obs, err := newInspector(clock).Inspect(context.Background(), srv.URL+"/file", nil)
 		done <- result{obs, err}
 	}()
+	deadline := time.After(5 * time.Second)
 	for advanced := 0; ; {
 		select {
+		case <-deadline:
+			t.Fatal("Inspect did not finish")
 		case r := <-done:
 			if r.err != nil || r.obs.Err != nil {
 				t.Fatalf("err=%v obsErr=%v", r.err, r.obs.Err)
@@ -236,8 +245,11 @@ func TestInspectRetryExhausted(t *testing.T) {
 		obs, _ := newInspector(clock).Inspect(context.Background(), srv.URL+"/file", nil)
 		done <- obs
 	}()
+	deadline := time.After(5 * time.Second)
 	for {
 		select {
+		case <-deadline:
+			t.Fatal("Inspect did not finish")
 		case obs := <-done:
 			if obs.Err == nil || obs.Err.Kind != domain.KindTransient || obs.ProbeRetries != 2 {
 				t.Fatalf("err=%v retries=%d", obs.Err, obs.ProbeRetries)
@@ -303,5 +315,46 @@ func TestInspectInvalidURL(t *testing.T) {
 	cancel()
 	if _, err := in.Inspect(ctx, "http://127.0.0.1:1/file", nil); err == nil {
 		t.Fatal("cancelled ctx: no error")
+	}
+}
+
+func TestInspectProbe2RetryExhausted(t *testing.T) {
+	const size = 20 << 20
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"v1"`)
+		if r.Header.Get("Range") != "bytes=0-0" {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Range", "bytes 0-0/"+strconv.Itoa(size))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte{0})
+	}))
+	t.Cleanup(srv.Close)
+	clock := clocktest.New(time.Unix(0, 0))
+	done := make(chan Observations, 1)
+	go func() {
+		obs, _ := newInspector(clock).Inspect(context.Background(), srv.URL+"/file", nil)
+		done <- obs
+	}()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("Inspect did not finish")
+		case obs := <-done:
+			if obs.Err != nil || obs.RangesProven || obs.Size != size || obs.ProbeRetries != 2 || obs.Dynamic {
+				t.Fatalf("err=%v proven=%v size=%d retries=%d dynamic=%v", obs.Err, obs.RangesProven, obs.Size, obs.ProbeRetries, obs.Dynamic)
+			}
+			if !hasAnomaly(obs, "probe 2 failed: server answered 503") {
+				t.Fatalf("anomalies = %v", obs.Anomalies)
+			}
+			return
+		case <-time.After(time.Millisecond):
+			if clock.Waiters() > 0 {
+				clock.Advance(time.Second)
+			}
+		}
 	}
 }

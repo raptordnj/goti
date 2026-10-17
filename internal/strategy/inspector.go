@@ -48,6 +48,9 @@ type probe struct {
 	redirs  []string
 	errText string
 	errKind domain.ErrorKind // for transport errors (resp == nil)
+	// exhausted is the classified 429/503 status after the last retry; the
+	// caller decides whether it fails the inspection (probe 1 only).
+	exhausted *domain.Error
 }
 
 // Inspect runs spec §4.1 steps 1–7 against rawURL. known, when it holds a
@@ -75,6 +78,7 @@ func (in *Inspector) Inspect(ctx context.Context, rawURL string, known *domain.V
 	obs.Redirects = p1.redirs
 	obs.SignedURL = obs.SignedURL || transport.IsSignedURL(finalURL)
 	if p1.resp == nil {
+		obs.Err = p1.exhausted
 		if obs.Err == nil {
 			obs.Err = domain.NewError(p1.errKind, "probe failed: "+p1.errText, "", nil)
 		}
@@ -190,7 +194,7 @@ func (in *Inspector) probe2(ctx context.Context, obs *Observations, target strin
 }
 
 // probe performs one ranged GET with retries on 429/503, appending a
-// ProbeResult per final attempt. The error is non-nil only when ctx is done.
+// ProbeResult per attempt. It never sets obs.Err. The error is non-nil only when ctx is done.
 func (in *Inspector) probe(ctx context.Context, obs *Observations, target string, want domain.ByteRange, ifRange string, trackRedirects bool) (probe, error) {
 	for attempt := 1; ; attempt++ {
 		p, retryAfter := in.attempt(ctx, obs, target, want, ifRange, trackRedirects)
@@ -201,7 +205,7 @@ func (in *Inspector) probe(ctx context.Context, obs *Observations, target string
 			if p.resp != nil && retryAfter >= 0 {
 				e := statusError(p.resp)
 				e.RetryAfter = retryAfter
-				obs.Err = e
+				p.exhausted = e
 				p.resp = nil
 				p.errText = e.Msg
 			}
