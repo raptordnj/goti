@@ -255,7 +255,9 @@ func TestOfflineWaiter(t *testing.T) {
 			}
 			waitWaiters(t, clk)
 			cancel()
-			_ = <-done
+			if err := <-done; !errors.Is(err, context.Canceled) {
+				t.Errorf("got %v", err)
+			}
 			mu.Lock()
 			if fmt.Sprint(got[:len(c.want)]) != fmt.Sprint(c.want) {
 				t.Errorf("base %v: got %v want %v", c.base, got, c.want)
