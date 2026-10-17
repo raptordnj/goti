@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -108,10 +109,57 @@ func TestInspectMalformedContentRange(t *testing.T) {
 }
 
 func TestInspectWrongTotal(t *testing.T) {
-	// The Content-Range total is Size+1 on every response, which is
-	// self-consistent across probes 1 and 2 at floor(N/2): spec §4.1 offers
-	// no observation that can contradict it. See the task-14 report.
-	t.Skip("WrongTotal is undetectable by the spec §4.1 probe sequence; awaiting controller ruling")
+	obs, _ := inspect(t, faultserver.Options{Size: 20 << 20, ETag: "v1", WrongTotal: true}, "/file")
+	if obs.RangesProven || !hasAnomaly(obs, "total differs") {
+		t.Fatalf("proven=%v anomalies=%v", obs.RangesProven, obs.Anomalies)
+	}
+}
+
+func TestInspectOfflineClosedPort(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	obs, err := newInspector(nil).Inspect(context.Background(), "http://"+addr+"/file", nil)
+	if err != nil || obs.Err == nil || obs.Err.Kind != domain.KindOffline {
+		t.Fatalf("err=%v obsErr=%v", err, obs.Err)
+	}
+}
+
+func TestInspectOfflineDNS(t *testing.T) {
+	srv := faultserver.New(t, faultserver.Options{Size: 10})
+	srv.SetDNSFailing(true)
+	in := newInspector(nil)
+	in.Client = transport.NewClient(transport.ClientOptions{AllowPrivate: true, Dialer: srv.Dialer()})
+	obs, err := in.Inspect(context.Background(), srv.URL+"/file", nil)
+	if err != nil || obs.Err == nil || obs.Err.Kind != domain.KindOffline {
+		t.Fatalf("err=%v obsErr=%v", err, obs.Err)
+	}
+}
+
+func TestInspectRetryAfterCapped(t *testing.T) {
+	srv := faultserver.New(t, faultserver.Options{Size: 10, FailFirstN: 1, RetryAfter: time.Hour})
+	clock := clocktest.New(time.Unix(0, 0))
+	done := make(chan Observations, 1)
+	go func() {
+		obs, _ := newInspector(clock).Inspect(context.Background(), srv.URL+"/file", nil)
+		done <- obs
+	}()
+	for {
+		select {
+		case obs := <-done:
+			if obs.Err != nil || obs.ProbeRetries != 1 {
+				t.Fatalf("err=%v retries=%d", obs.Err, obs.ProbeRetries)
+			}
+			return
+		case <-time.After(time.Millisecond):
+			if clock.Waiters() > 0 {
+				clock.Advance(10 * time.Minute)
+			}
+		}
+	}
 }
 
 func TestInspectSmallFileSkipsProbe2(t *testing.T) {

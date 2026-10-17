@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/raptordnj/swiftfetch/internal/config"
@@ -23,6 +25,7 @@ const (
 	maxURLLen           = 8 << 10
 	maxProbeAttempts    = 3
 	defaultRetryAfter   = time.Second
+	maxRetryAfter       = 10 * time.Minute
 	fileNameDefault     = "download"
 	sourceDisposition   = "content-disposition"
 	sourceURL           = "url"
@@ -44,6 +47,7 @@ type probe struct {
 	final   *url.URL
 	redirs  []string
 	errText string
+	errKind domain.ErrorKind // for transport errors (resp == nil)
 }
 
 // Inspect runs spec §4.1 steps 1–7 against rawURL. known, when it holds a
@@ -72,7 +76,7 @@ func (in *Inspector) Inspect(ctx context.Context, rawURL string, known *domain.V
 	obs.SignedURL = obs.SignedURL || transport.IsSignedURL(finalURL)
 	if p1.resp == nil {
 		if obs.Err == nil {
-			obs.Err = domain.NewError(domain.KindTransient, "probe failed: "+p1.errText, "", nil)
+			obs.Err = domain.NewError(p1.errKind, "probe failed: "+p1.errText, "", nil)
 		}
 		return obs, nil
 	}
@@ -247,6 +251,7 @@ func (in *Inspector) attempt(ctx context.Context, obs *Observations, target stri
 			obs.ProbeTimeouts++
 		}
 		p.errText = transport.RedactError(err).Error()
+		p.errKind = transportErrorKind(err)
 		pr.Err = p.errText
 		obs.Probes = append(obs.Probes, pr)
 		return p, -1
@@ -267,7 +272,7 @@ func (in *Inspector) attempt(ctx context.Context, obs *Observations, target stri
 	pr.Validators = transport.ReadValidators(resp.Header)
 	obs.Probes = append(obs.Probes, pr)
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
-		return p, parseRetryAfter(resp.Header.Get("Retry-After"), in.Clock.Now())
+		return p, min(parseRetryAfter(resp.Header.Get("Retry-After"), in.Clock.Now()), maxRetryAfter)
 	}
 	return p, -1
 }
@@ -329,4 +334,19 @@ func parseRetryAfter(v string, now time.Time) time.Duration {
 		return max(t.Sub(now), 0)
 	}
 	return defaultRetryAfter
+}
+
+// transportErrorKind classifies a failed request: network-unreachable
+// failures are KindOffline, everything else KindTransient.
+func transportErrorKind(err error) domain.ErrorKind {
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) ||
+		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENETUNREACH) || errors.Is(err, syscall.EHOSTUNREACH) {
+		return domain.KindOffline
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && opErr.Op == "dial" && opErr.Timeout() {
+		return domain.KindOffline
+	}
+	return domain.KindTransient
 }
