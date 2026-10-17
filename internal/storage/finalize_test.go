@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -199,5 +200,45 @@ func TestRenameNoReplaceConflict(t *testing.T) {
 	writeFile(t, b, "B")
 	if err := renameNoReplace(a, b); !errors.Is(err, fs.ErrExist) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFinalizeSyncFailureReportsPath(t *testing.T) {
+	dir := t.TempDir()
+	tmp, dest := filepath.Join(dir, "a.part"), filepath.Join(dir, "a.txt")
+	writeFile(t, tmp, "new")
+	writeFile(t, dest, "keep")
+	boom := errors.New("sync boom")
+	final, err := finalizeWith(tmp, dest, domain.PolicyRename, func(string) error { return boom })
+	if err == nil || domain.KindOf(err) != domain.KindLocal || !errors.Is(err, boom) {
+		t.Fatalf("err = %v", err)
+	}
+	if final != filepath.Join(dir, "a (1).txt") || readFile(t, final) != "new" {
+		t.Fatalf("final = %q", final)
+	}
+}
+
+func TestLinkRenameRemoveFailureIsPlaced(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs unix permissions and non-root")
+	}
+	src, dst := filepath.Join(t.TempDir(), "s"), t.TempDir()
+	if err := os.Mkdir(src, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(src, "a")
+	writeFile(t, old, "A")
+	if err := os.Chmod(src, 0o500); err != nil { //nolint:gosec // test needs unremovable file
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(src, 0o700) }) //nolint:gosec // restore for cleanup
+	newPath := filepath.Join(dst, "b")
+	err := linkRename(old, newPath)
+	var pe *placedError
+	if !errors.As(err, &pe) {
+		t.Fatalf("err = %v, want placedError", err)
+	}
+	if readFile(t, newPath) != "A" {
+		t.Fatal("link target missing")
 	}
 }

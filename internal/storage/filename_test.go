@@ -21,6 +21,15 @@ func TestSanitizeFilename(t *testing.T) {
 		{"\x00\x1fx\u0085y", "xy"},
 		{"", "download"},
 		{"ok name.txt", "ok name.txt"},
+		{"con.backup.txt", "con_.backup.txt"},
+		{"CON.tar.gz", "CON_.tar.gz"},
+		{"COM\u00b9", "COM\u00b9_"},
+		{"lpt\u00b3.txt", "lpt\u00b3_.txt"},
+		{"com\u00b2.a.b", "com\u00b2_.a.b"},
+		{"CONIN$", "CONIN$_"},
+		{"conout$.txt", "conout$_.txt"},
+		{"COM0", "COM0"},
+		{"a\u202eb\u200bc\ufeff.txt", "abc.txt"},
 	}
 	for _, c := range cases {
 		if got := SanitizeFilename(c.in); got != c.want {
@@ -52,6 +61,9 @@ func FuzzSanitizeFilename(f *testing.F) {
 		out := SanitizeFilename(in)
 		if out == "" || !utf8.ValidString(out) || len(out) > maxNameBytes {
 			t.Fatalf("bad output %q for %q", out, in)
+		}
+		if isReserved(out) {
+			t.Fatalf("reserved name %q for %q", out, in)
 		}
 		if strings.ContainsAny(out, "/\\\x00") {
 			t.Fatalf("forbidden char in %q", out)

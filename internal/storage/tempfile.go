@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/raptordnj/swiftfetch/internal/domain"
 )
@@ -31,6 +32,12 @@ type TempFile struct {
 // sizeKnown, the file is truncated to size and, where supported,
 // preallocated.
 func CreateTemp(dir, base string, size int64, sizeKnown bool) (*TempFile, error) {
+	if !validTempBase(base) {
+		return nil, domain.NewError(domain.KindLocal, "invalid temp file name", "use a plain file name without path separators", nil)
+	}
+	if sizeKnown && size < 0 {
+		return nil, domain.NewError(domain.KindLocal, "invalid temp file size", "", nil)
+	}
 	var f *os.File
 	var err error
 	for i := 0; i <= maxTempRetries; i++ {
@@ -58,6 +65,12 @@ func CreateTemp(dir, base string, size int64, sizeKnown bool) (*TempFile, error)
 		preallocate(f, size)
 	}
 	return &TempFile{f: f}, nil
+}
+
+// validTempBase reports whether base is a single, plain path element.
+func validTempBase(base string) bool {
+	return base != "" && base != "." && base != ".." &&
+		!strings.ContainsAny(base, "/\\\x00") && filepath.Base(base) == base
 }
 
 // OpenTemp opens an existing temp file for reading and writing.

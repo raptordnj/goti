@@ -9,9 +9,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// renameReplace renames old to new, replacing new if it exists.
-func renameReplace(old, newPath string) error { return os.Rename(old, newPath) }
-
 // syncDir fsyncs a directory so a completed rename survives a crash.
 // Filesystems that cannot sync directories (EINVAL) are tolerated.
 func syncDir(dir string) error {

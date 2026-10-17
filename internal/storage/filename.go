@@ -32,7 +32,7 @@ func SanitizeFilename(name string) string {
 		switch {
 		case r == utf8.RuneError && w == 1:
 			continue // invalid byte
-		case unicode.IsControl(r): // C0, DEL, C1
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r): // C0, DEL, C1, format chars (RLO, zero-width)
 			continue
 		case strings.ContainsRune(`<>:"|?*`, r):
 			b.WriteByte('_')
@@ -49,8 +49,12 @@ func SanitizeFilename(name string) string {
 		return fallbackName
 	}
 	if isReserved(name) {
-		stem, ext := splitExt(name)
-		name = stem + "_" + ext
+		// Windows matches the part before the FIRST dot, so suffix there.
+		i := strings.IndexByte(name, '.')
+		if i < 0 {
+			i = len(name)
+		}
+		name = name[:i] + "_" + name[i:]
 	}
 	return name
 }
@@ -103,11 +107,24 @@ func isReserved(name string) bool {
 	base, _, _ := strings.Cut(name, ".")
 	base = strings.ToUpper(strings.TrimRight(base, " "))
 	switch base {
-	case "CON", "PRN", "AUX", "NUL":
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
 		return true
 	}
-	if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) {
-		return base[3] >= '1' && base[3] <= '9'
+	if rest, ok := strings.CutPrefix(base, "COM"); ok {
+		return isDeviceDigit(rest)
+	}
+	if rest, ok := strings.CutPrefix(base, "LPT"); ok {
+		return isDeviceDigit(rest)
+	}
+	return false
+}
+
+// isDeviceDigit reports whether s is a single digit 1-9 or a superscript
+// 1, 2 or 3 (which Windows also treats as COM/LPT port numbers).
+func isDeviceDigit(s string) bool {
+	switch s {
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9", "\u00b9", "\u00b2", "\u00b3":
+		return true
 	}
 	return false
 }

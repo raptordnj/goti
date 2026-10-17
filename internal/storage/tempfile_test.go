@@ -187,3 +187,18 @@ func TestCreateTempReadOnlyDir(t *testing.T) {
 
 // pattern returns the one-byte fill value for block i (i < 255).
 func pattern(i int) []byte { return []byte{byte(i + 1)} } //nolint:gosec // i is a small test index
+
+func TestCreateTempRejectsBadInput(t *testing.T) {
+	dir := t.TempDir()
+	for _, base := range []string{"", ".", "..", "a/b", "../x", `a\b`} {
+		if _, err := CreateTemp(dir, base, 1, true); domain.KindOf(err) != domain.KindLocal {
+			t.Errorf("base %q: err = %v", base, err)
+		}
+	}
+	if _, err := CreateTemp(dir, "ok", -1, true); domain.KindOf(err) != domain.KindLocal {
+		t.Errorf("negative size: err = %v", err)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
+		t.Errorf("files created: %v", ents)
+	}
+}
