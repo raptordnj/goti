@@ -82,3 +82,6 @@ func KindOf(err error) ErrorKind {
 	}
 	return KindTransient
 }
+
+// ErrNotFound is returned by stores when a record does not exist.
+var ErrNotFound = errors.New("not found")
