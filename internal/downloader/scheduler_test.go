@@ -369,13 +369,17 @@ func TestSplitUndoWhenOwnerAdvances(t *testing.T) {
 
 // TestSchedulerConcurrent runs owners as goroutines that follow the owner
 // contract (bufSize writes truncated to End) while idle workers split and a
-// checkpointer snapshots Records.
+// checkpointer snapshots Records. Each run starts with a single segment and
+// eight workers, and no owner writes until the first split has succeeded, so
+// splitting is exercised deterministically rather than by timing.
 func TestSchedulerConcurrent(t *testing.T) {
 	const bufSize = 64 << 10
 	var splits atomic.Int64
-	for it := 0; it < 20; it++ {
+	for it := 0; it < 10; it++ {
 		total := int64(32<<20 + it*4097)
-		s := NewScheduler(total, 8<<20)
+		s := NewScheduler(total, total)
+		firstSplit := make(chan struct{})
+		var once sync.Once
 		data := make([]byte, total)
 		_, _ = rand.New(rand.NewSource(int64(it))).Read(data) //nolint:gosec // deterministic test data
 		stop := make(chan struct{})
@@ -407,6 +411,7 @@ func TestSchedulerConcurrent(t *testing.T) {
 						g, ok = s.TrySplit(w, 1<<20, bufSize, one)
 						if ok {
 							splits.Add(1)
+							once.Do(func() { close(firstSplit) })
 						}
 					}
 					if !ok {
@@ -416,6 +421,7 @@ func TestSchedulerConcurrent(t *testing.T) {
 						runtime.Gosched()
 						continue
 					}
+					<-firstSplit
 					for {
 						for p := g.Pos(); p < g.End(); p = g.Pos() {
 							n := min(int64(bufSize), g.End()-p)
@@ -440,7 +446,7 @@ func TestSchedulerConcurrent(t *testing.T) {
 			next = r.End
 		}
 	}
-	if splits.Load() == 0 {
-		t.Fatal("no endgame split exercised")
+	if splits.Load() < 10 {
+		t.Fatalf("only %d endgame splits exercised", splits.Load())
 	}
 }
