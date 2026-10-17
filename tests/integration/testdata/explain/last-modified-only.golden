@@ -1,0 +1,55 @@
+{
+  "strategy": "multipart",
+  "resume": false,
+  "remote_changed": false,
+  "confidence": "medium",
+  "size": 52428800,
+  "size_known": true,
+  "ranges_proven": true,
+  "validator": "last-modified",
+  "initial_conns": 2,
+  "max_conns": 8,
+  "chunk_size": 1048576,
+  "probes": [
+    {
+      "Requested": {
+        "Start": 0,
+        "End": 1
+      },
+      "Status": 206,
+      "ContentRange": "bytes 0-0/52428800",
+      "BodyLen": 1,
+      "Validators": {
+        "ETag": "",
+        "ETagStrong": false,
+        "LastModified": "Fri, 02 Jan 2026 03:04:05 GMT"
+      },
+      "RTT": 0,
+      "Err": ""
+    },
+    {
+      "Requested": {
+        "Start": 26214400,
+        "End": 26214402
+      },
+      "Status": 206,
+      "ContentRange": "bytes 26214400-26214401/52428800",
+      "BodyLen": 2,
+      "Validators": {
+        "ETag": "",
+        "ETagStrong": false,
+        "LastModified": "Fri, 02 Jan 2026 03:04:05 GMT"
+      },
+      "RTT": 0,
+      "Err": ""
+    }
+  ],
+  "reasons": [
+    "multipart: ranges proven, size 52428800, validator last-modified"
+  ],
+  "change_triggers": [
+    "increase connections while throughput improves \u003e= 10%",
+    "drop to conservative after 3 consecutive windows with repeated timeouts/resets",
+    "halve connections and back off on 429/503"
+  ]
+}
