@@ -61,7 +61,8 @@ type taskRun struct {
 
 	ckDownloaded atomic.Int64 // Downloaded as last checkpointed (T17)
 	live         atomic.Int64 // bytes written in the current run, for progress
-	failBytes    int64        // live at the previous task-level failure
+	written      atomic.Int64 // bytes written across all passes of this Run
+	failBytes    int64        // written at the previous task-level failure
 	retries      atomic.Int32 // attempts reported, for RetryScheduled.Attempt
 }
 
@@ -185,9 +186,11 @@ func (r *taskRun) once(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if r.client, err = r.e.clientFor(ctx, u); err != nil {
+		c, err := r.e.clientFor(ctx, u)
+		if err != nil {
 			return err
 		}
+		r.client = c
 	}
 	segs, err := r.e.d.Store.LoadSegments(ctx, r.t.ID)
 	if err != nil {
@@ -333,6 +336,7 @@ func (r *taskRun) recoverFile(ctx context.Context, segs []domain.SegmentRecord) 
 		have += rec.Pos - rec.Start
 	}
 	r.live.Store(have)
+	r.ckDownloaded.Store(have)
 	return f, sched, nil
 }
 
@@ -364,9 +368,12 @@ func (r *taskRun) download(ctx context.Context, d strategy.Decision, file *stora
 		clock:    r.e.d.Clock,
 		backoff:  r.backoff,
 		budget:   NewBudget(r.cfg.MaxSegmentAttempts),
-		onBytes:  func(n int64) { r.live.Add(n) },
-		onRetry:  func(a domain.Attempt) { r.recordAttempt(ctx, a) },
-		bufPool:  newBufPool(),
+		onBytes: func(n int64) {
+			r.live.Add(n)
+			r.written.Add(n)
+		},
+		onRetry: func(a domain.Attempt) { r.recordAttempt(ctx, a) },
+		bufPool: newBufPool(),
 	}
 	var ck *checkpointer
 	if d.SizeKnown {
@@ -514,7 +521,7 @@ func (r *taskRun) finish(ctx context.Context, file *storage.TempFile, sched *Sch
 	}
 	final, err := storage.Finalize(r.t.TempPath, dest, r.t.ExistingPolicy)
 	if final == "" {
-		return err
+		return asLocal(err)
 	}
 	if err != nil {
 		r.warn("download placed at " + final + " but not confirmed durable: " + err.Error())
@@ -586,11 +593,11 @@ func toDomainError(err error) *domain.Error {
 
 // retry spends the task budget, enters retrying and sleeps the backoff.
 func (r *taskRun) retry(ctx context.Context, de *domain.Error, reason string) (bool, error) {
-	if n := r.live.Load(); n-r.failBytes >= progressBytes {
+	if n := r.written.Load(); n-r.failBytes >= progressBytes {
 		r.budget.Progress()
 		r.attempt = 0
 	}
-	r.failBytes = r.live.Load()
+	r.failBytes = r.written.Load()
 	if !r.budget.Spend() {
 		return false, r.fail(ctx, domain.NewError(de.Kind, "retry budget exhausted: "+de.Msg, "retry later", de))
 	}
@@ -650,9 +657,13 @@ func (r *taskRun) checkOnline(ctx context.Context) error {
 	if port == "" {
 		port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
 	}
-	dial := (&net.Dialer{}).DialContext
-	if tr, ok := r.client.Transport.(*http.Transport); ok && tr.DialContext != nil {
-		dial = tr.DialContext
+	// Without a client yet (host resolution failed), probe with a plain
+	// dialer using the engine's resolver; the client is built after the wait.
+	dial := (&net.Dialer{Resolver: r.e.d.Resolver}).DialContext
+	if r.client != nil {
+		if tr, ok := r.client.Transport.(*http.Transport); ok && tr.DialContext != nil {
+			dial = tr.DialContext
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, offlineCheckTimeout)
 	defer cancel()

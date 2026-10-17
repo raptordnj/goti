@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/raptordnj/swiftfetch/internal/domain"
 )
@@ -24,7 +25,8 @@ const (
 // TempFile is a download's partial file. WriteAt and ReadAt are safe for
 // concurrent use because they never touch a shared file offset.
 type TempFile struct {
-	f *os.File
+	f      *os.File
+	closed atomic.Bool
 }
 
 // CreateTemp exclusively creates "<dir>/<base>.swiftfetch-part" (mode 0644),
@@ -108,8 +110,11 @@ func (t *TempFile) Sync() error {
 	return nil
 }
 
-// Close closes the file.
+// Close closes the file; calls after the first are no-ops.
 func (t *TempFile) Close() error {
+	if !t.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	if err := t.f.Close(); err != nil {
 		return localError(filepath.Dir(t.f.Name()), "close temp file", err)
 	}

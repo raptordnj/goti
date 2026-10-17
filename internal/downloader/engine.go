@@ -40,6 +40,9 @@ const (
 // ErrAlreadyRunning is returned by Run while another Run of the task is active.
 var ErrAlreadyRunning = errors.New("task already running")
 
+// errTaskCompleted is returned by Cancel for a task that already completed.
+var errTaskCompleted = domain.NewError(domain.KindPermanent, "task already completed", "remove it instead", nil)
+
 // ErrShuttingDown is returned by Run after Shutdown.
 var ErrShuttingDown = errors.New("engine shutting down")
 
@@ -284,7 +287,9 @@ func (e *Engine) Run(ctx context.Context, id string) error {
 }
 
 // Pause stops a running task with cause domain.ErrPaused; it reports whether
-// a run was found.
+// a run was found. A task that is verifying is not paused: the transition
+// table has no verifying→paused, so verification and finalization run to
+// completion (ruling R25).
 func (e *Engine) Pause(id string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -329,6 +334,9 @@ func (e *Engine) Cancel(ctx context.Context, id string) error {
 			if err != nil || t.State == domain.StateCancelled {
 				return err
 			}
+			if t.State == domain.StateCompleted {
+				return errTaskCompleted
+			}
 			// The run ended for another reason (completed, failed, paused); retry.
 		}
 		h, err := e.acquire(id, nil)
@@ -349,8 +357,11 @@ func (e *Engine) cancelIdle(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if t.State == domain.StateCancelled {
+	switch t.State {
+	case domain.StateCancelled:
 		return nil
+	case domain.StateCompleted:
+		return errTaskCompleted
 	}
 	return newTaskRun(e, t).setState(ctx, domain.StateCancelled, "cancelled")
 }

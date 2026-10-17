@@ -3,10 +3,12 @@ package downloader
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,7 +41,7 @@ type engFixture struct {
 	wrapRT func(http.RoundTripper) http.RoundTripper
 }
 
-func newEngFixture(t *testing.T, opts faultserver.Options, mod func(*config.Config)) *engFixture {
+func newEngFixture(t *testing.T, opts faultserver.Options, mod func(*config.Config), depMods ...func(*EngineDeps)) *engFixture {
 	t.Helper()
 	opts.Seed = engSeed
 	if opts.ETag == "" && !opts.NoValidators {
@@ -75,7 +77,7 @@ func newEngFixture(t *testing.T, opts faultserver.Options, mod func(*config.Conf
 		}
 	}()
 	t.Cleanup(func() { cancel(); <-done })
-	f.e = NewEngine(EngineDeps{
+	deps := EngineDeps{
 		Store:  f.store,
 		Config: cfg,
 		Bus:    bus,
@@ -95,7 +97,11 @@ func newEngFixture(t *testing.T, opts faultserver.Options, mod func(*config.Conf
 			return c
 		},
 		OfflineBaseDelay: 100 * time.Millisecond,
-	})
+	}
+	for _, m := range depMods {
+		m(&deps)
+	}
+	f.e = NewEngine(deps)
 	return f
 }
 
@@ -673,24 +679,29 @@ func TestSameNameConcurrentTasks(t *testing.T) {
 }
 
 func TestOfflineWaitThenResume(t *testing.T) {
-	const size = 4 << 20
+	const size = 8 << 20 // ranges proven (probe 2), so interruptions resume
+	// Two outages with a task budget of 1: if offline waits spent budget,
+	// the second wait would exhaust it and the task would fail.
 	f := newEngFixture(t, faultserver.Options{
-		Size: size, BytesPerSecondGlobal: 4 << 20,
-		Outages: []faultserver.Outage{{After: 300 * time.Millisecond, Duration: 3 * time.Second}},
+		Size: size, BytesPerSecondGlobal: 2 << 20,
+		Outages: []faultserver.Outage{
+			{After: 300 * time.Millisecond, Duration: time.Second},
+			{After: 2300 * time.Millisecond, Duration: time.Second},
+		},
 	}, func(c *config.Config) { c.TaskRetryBudget = 1 })
 	task := f.add(t, AddRequest{})
 	if err := f.run(t, task.ID); err != nil {
 		t.Fatal(err)
 	}
 	checkContent(t, f.task(t, task.ID).FinalPath, engSeed, size)
-	waiting := false
+	waits := 0
 	for _, ev := range f.events() {
 		if sc, ok := ev.(events.StateChanged); ok && sc.To == domain.StateRetrying && sc.Reason == "waiting for network" {
-			waiting = true
+			waits++
 		}
 	}
-	if !waiting {
-		t.Fatalf("no retrying/waiting for network state: %v", f.states(task.ID))
+	if waits < 2 {
+		t.Fatalf("%d offline waits, want >= 2: %v", waits, f.states(task.ID))
 	}
 }
 
@@ -771,5 +782,101 @@ func TestExplain(t *testing.T) {
 	}
 	if d.Strategy != domain.StrategyMultipart || !obs.RangesProven {
 		t.Fatalf("decision %s", d.Summary())
+	}
+}
+
+// fakeDNS returns a pure-Go resolver whose queries fail while failing is set
+// and otherwise answer every A query with 127.0.0.1 (no AAAA records).
+func fakeDNS(failing *atomic.Bool) *net.Resolver {
+	return &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		if failing.Load() {
+			return nil, errors.New("fake dns: unreachable")
+		}
+		c, s := net.Pipe()
+		go serveFakeDNS(s)
+		return c, nil
+	}}
+}
+
+// serveFakeDNS answers TCP-framed DNS queries on c (net.Pipe is not a
+// PacketConn, so the resolver uses stream framing).
+func serveFakeDNS(c net.Conn) {
+	defer func() { _ = c.Close() }()
+	for {
+		var l [2]byte
+		if _, err := io.ReadFull(c, l[:]); err != nil {
+			return
+		}
+		q := make([]byte, int(l[0])<<8|int(l[1]))
+		if _, err := io.ReadFull(c, q); err != nil || len(q) < 12 {
+			return
+		}
+		end := 12
+		for end < len(q) && q[end] != 0 {
+			end += int(q[end]) + 1
+		}
+		end += 5 // root label, QTYPE, QCLASS
+		if end > len(q) {
+			return
+		}
+		qtype := int(q[end-4])<<8 | int(q[end-3])
+		resp := append([]byte(nil), q[:end]...)
+		resp[2], resp[3] = 0x81, 0x80 // response, RD, RA, NOERROR
+		resp[6], resp[7], resp[8], resp[9], resp[10], resp[11] = 0, 0, 0, 0, 0, 0
+		if qtype == 1 {
+			resp[7] = 1
+			resp = append(resp, 0xC0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 127, 0, 0, 1)
+		}
+		framed := binary.BigEndian.AppendUint16(nil, uint16(len(resp))) //nolint:gosec // DNS message < 64 KiB
+		framed = append(framed, resp...)
+		if _, err := c.Write(framed); err != nil {
+			return
+		}
+	}
+}
+
+func TestOfflineHostResolution(t *testing.T) {
+	const size = 1 << 20
+	var failing atomic.Bool
+	failing.Store(true)
+	res := fakeDNS(&failing)
+	f := newEngFixture(t, faultserver.Options{Size: size}, nil, func(d *EngineDeps) {
+		d.Resolver = res
+		cfg := d.Config
+		d.NewClient = func(allowPrivate bool) *http.Client {
+			dialer := &net.Dialer{Resolver: res}
+			return transport.NewClient(transport.ClientOptions{
+				Policy: cfg.NetworkPolicy, AllowPrivate: allowPrivate, Dialer: dialer.DialContext,
+			})
+		}
+	})
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(f.srv.URL, "http://"))
+	task := f.add(t, AddRequest{URL: "http://swiftfetch-test.invalid:" + port + "/file"})
+	go func() {
+		waitFor(t, 10*time.Second, "waiting for network", func() bool {
+			for _, ev := range f.events() {
+				if sc, ok := ev.(events.StateChanged); ok && sc.Reason == "waiting for network" {
+					return true
+				}
+			}
+			return false
+		})
+		failing.Store(false)
+	}()
+	if err := f.run(t, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	checkContent(t, f.task(t, task.ID).FinalPath, engSeed, size)
+}
+
+func TestCancelCompleted(t *testing.T) {
+	f := newEngFixture(t, faultserver.Options{Size: 1 << 20}, nil)
+	task := f.add(t, AddRequest{})
+	if err := f.run(t, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	_ = wantKind(t, f.e.Cancel(context.Background(), task.ID), domain.KindPermanent)
+	if s := f.task(t, task.ID).State; s != domain.StateCompleted {
+		t.Fatalf("state %s", s)
 	}
 }
