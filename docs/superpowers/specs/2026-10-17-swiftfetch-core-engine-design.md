@@ -25,6 +25,17 @@ Priorities, in order: (1) evidence-based strategy selection, (2) integrity/resum
 - Encrypting persisted URLs with the OS keychain (documented limitation, §14).
 - Scheduled downloads and network-change auto-pause (sub-project 2).
 
+### Memory footprint (top priority, user-mandated 2026-10-17)
+
+A low memory footprint of the program itself is a top priority and a hard constraint on every design choice.
+
+- **Budgets (measured, CLI process RSS on linux/amd64):** idle after startup ≤ 20 MiB; one active 8-connection download ≤ 40 MiB; Go heap in use during a download ≤ 4 MiB above the pre-download baseline (buffers + segment state).
+- **Buffers:** 64 KiB per connection (not 256 KiB), pooled; never more than one buffer per active connection.
+- **Runtime:** the CLI sets a soft limit via `debug.SetMemoryLimit(32 MiB)` unless `GOMEMLIMIT` is set; no per-read allocations on the hot path (verified with `testing.AllocsPerRun`).
+- **SQLite:** `cache_size=-512` (512 KiB), `mmap_size=0`, WAL autocheckpoint left at default.
+- **Bounded state:** ≤ 4096 segments × small fixed struct; attempts capped at 200 rows in the DB and never loaded wholesale; probe bodies never buffered; full-file verification streams with a 64 KiB buffer.
+- **Dependencies:** no new modules; any addition must justify its binary-size and RSS cost.
+
 ## 2. Architecture
 
 ```
@@ -104,7 +115,7 @@ States: `queued`, `inspecting`, `downloading`, `paused`, `retrying`, `verifying`
 
 ### 3.3 Error kinds
 
-`ErrorKind`: `Transient`, `Permanent`, `Auth`, `Integrity`, `Cancelled`, `RemoteChanged`, `Policy` (blocked by security policy), `Local` (disk/filesystem). Errors carry a kind, a redacted message, an optional `RetryAfter`, and a recommended user action string. `errors.Is/As` work through wrapping.
+`ErrorKind`: `Transient`, `Offline` (connectivity lost: DNS failure, network/host unreachable, connection refused, dial timeout), `Permanent`, `Auth`, `Integrity`, `Cancelled`, `RemoteChanged`, `Policy` (blocked by security policy), `Local` (disk/filesystem). Errors carry a kind, a redacted message, an optional `RetryAfter`, and a recommended user action string. `errors.Is/As` work through wrapping.
 
 ## 4. Inspection and probing
 
@@ -188,7 +199,7 @@ When there are no pending segments, a worker is idle, and an owned segment's rem
 
 ### 6.3 Worker loop
 
-For each acquired segment: wait for connection semaphore → build request `Range: bytes=Pos-(End-1)` with `If-Range` when strong ETag → validate response (§6.4) → stream into a pooled 256 KiB buffer → for each read: wait on per-download and global rate limiters → `WriteAt(buf, offset)` → update hasher → advance `Pos` → report bytes to the sample accumulator. On error: classify; release segment; apply backoff; retry under budget.
+For each acquired segment: wait for connection semaphore → build request `Range: bytes=Pos-(End-1)` with `If-Range` when strong ETag → validate response (§6.4) → stream into a pooled 64 KiB buffer → for each read: wait on per-download and global rate limiters → `WriteAt(buf, offset)` → update hasher → advance `Pos` → report bytes to the sample accumulator. On error: classify; release segment; apply backoff; retry under budget.
 
 ### 6.4 Response validation
 
@@ -204,7 +215,7 @@ For each acquired segment: wait for connection semaphore → build request `Rang
 - Temp file: `<destdir>/<name>.swiftfetch-part`, in the destination directory so finalization is a same-filesystem rename.
 - Created with `O_CREATE|O_EXCL` (never reuses an unknown file), mode `0644`, preallocated with `Truncate(N)`; on Linux additionally `fallocate(FALLOC_FL_KEEP_SIZE)` where supported (failure is non-fatal).
 - All writes are `WriteAt`; there is no shared file offset. Windows `WriteAt` via `os.File` uses overlapped positional writes and is covered by the same tests in CI.
-- Memory bound: `connections × 256 KiB` buffers + small per-segment state.
+- Memory bound: `connections × 64 KiB` buffers + small per-segment state.
 - Files > 4 GiB: covered by a sparse-file test (fault server serves a deterministic synthetic 5 GiB body generated from offset, without storing it).
 
 ## 7. Single-stream engine
@@ -227,7 +238,16 @@ For each acquired segment: wait for connection semaphore → build request `Rang
 - Decrease is applied by retiring workers at their next segment boundary (no mid-transfer kill). Increase spawns a worker only if the global connection semaphore permits.
 - Signatures (documented and tested via simulation): per-connection-capped links → throughput scales with N → controller climbs; bandwidth-capped links → no gain → controller holds low; throttling → 429s → controller halves.
 
-### 8.1 Stall detection
+### 8.1 Harsh-network survival
+
+Every download must survive harsh networks (high loss, high latency, very low bandwidth, half-open connections, outages) without failing or losing verified progress.
+
+- **Progress-aware retry budget:** `TaskRetryBudget` and `MaxSegmentAttempts` count only retries without progress. Both reset after ≥ 1 MiB of new verified bytes or a completed segment. A flaky link that keeps making progress never exhausts them.
+- **Waiting for network:** `Offline` errors do not spend any budget. The task stays in `retrying` with reason "waiting for network". It runs a cheap connectivity check (TCP dial to the origin host:port), starting at 5 s and backing off ×2 to 60 s, emitting a `RetryScheduled` event every check. On success it resumes via `inspecting`. After `OfflineWaitLimit` (default 24 h; 0 = forever) of continuous offline time it fails with `Offline` and the action "network unavailable — resume when connected"; verified progress is kept.
+- **Timeouts suited to slow links:** no overall per-request timeout for downloads; dial 30 s, TLS handshake 30 s, response headers 60 s, TCP keepalive 15 s, HTTP/2 `ReadIdleTimeout` 30 s and `PingTimeout` 15 s (detects half-open connections). Body transfer is governed only by the adaptive stall detector (§8.2).
+- Inspection uses the same offline handling, so adding a URL while offline waits instead of failing.
+
+### 8.2 Stall detection
 
 A worker is stalled only if no bytes arrive for `max(StallTimeout (30 s), 10 × median inter-read gap of that worker)`. A stalled request is cancelled, its segment released, and it retries via backoff. Slow-but-progressing transfers are never classified as stalled.
 
@@ -320,6 +340,7 @@ System roots, verification always on, no option to disable. TLS errors are `Perm
 | StallTimeout | 30 s | 5–600 s |
 | CheckpointInterval / CheckpointBytes | 2 s / 16 MiB | 0.5–30 s / ≥ 1 MiB |
 | ProbeTimeout | 15 s | 1–120 s |
+| OfflineWaitLimit | 24 h | 0 (forever) or ≥ 1 min |
 | ExistingFilePolicy | rename | rename, overwrite, fail |
 | RestartOnRemoteChange | false | — |
 | ConservativeMode | false | — |
@@ -373,7 +394,7 @@ TDD for all of `domain`, `transport` parsers, `strategy`, `downloader`, `storage
 
 An `httptest.Server`-based handler with deterministic content (byte at offset `i` = function of `(seed, i)`, so large files need no storage) and per-test configurable behaviours:
 
-correct ranges; ignore ranges (200); malformed `Content-Range`; wrong total in `Content-Range`; lying `Content-Length` (short/long); ETag changes after K requests; weak ETag; no validators; Last-Modified only; redirect chains (incl. to private address and https→http); expiring URLs (403 after T); 401, 403, 404, 410, 416; 429 and 503 with `Retry-After`; fixed and variable bandwidth (token bucket per connection and global); per-connection throughput cap; connection resets after B bytes; mid-stream truncation; randomized chunk delays; corrupted bytes at given offsets; premature server close; chunked/unknown length; empty file; 5 GiB synthetic file; max-concurrent-connection limit (excess get 503).
+correct ranges; ignore ranges (200); malformed `Content-Range`; wrong total in `Content-Range`; lying `Content-Length` (short/long); ETag changes after K requests; weak ETag; no validators; Last-Modified only; redirect chains (incl. to private address and https→http); expiring URLs (403 after T); 401, 403, 404, 410, 416; 429 and 503 with `Retry-After`; fixed and variable bandwidth (token bucket per connection and global); per-connection throughput cap; connection resets after B bytes; mid-stream truncation; randomized chunk delays; corrupted bytes at given offsets; premature server close; chunked/unknown length; empty file; 5 GiB synthetic file; max-concurrent-connection limit (excess get 503); random connection drops (probability per written piece); blackhole (accept, send headers and part of the body, then hang); per-write latency (simulating 1–2 s RTT); bandwidth down to 8 KB/s; outage windows (listener refuses connections for N seconds, then recovers); injected DNS failures (via a test resolver/dialer hook).
 
 ### 18.2 Test inventory
 
@@ -384,6 +405,7 @@ correct ranges; ignore ranges (200); malformed `Content-Range`; wrong total in `
 - **Fault injection:** wrapper `Store` failing the Nth transaction; wrapper file failing the Nth `WriteAt`/`Sync`; assert recovery never trusts unverified bytes.
 - **Crash test:** test binary re-execs itself as a child that downloads from a fault server; parent `SIGKILL`s it at a random byte offset (20 randomized runs; Windows uses `Process.Kill`); restart recovery; final file byte-identical; assert that recovered segments were hash-verified.
 - **Finalization:** no-replace rename behaviour per OS (existing destination preserved), suffix selection, overwrite opt-in.
+- **Harsh-network soak:** single-stream and multipart, 5 seeds each: 20% drops, 800 ms latency, 64 KB/s, one 15 s outage and one blackhole. Every run must finish byte-identical with no task failure and bounded memory. A short variant runs in `-short`; the full soak runs otherwise.
 - **Memory bound:** 1 GiB download; assert peak heap (`runtime.ReadMemStats` sampling) stays under a fixed bound (connections × buffer + 16 MiB).
 - **Benchmarks (smoke only in this sub-project):** single vs multipart on local fault server with per-connection caps; inspection overhead. Full comparative benchmarking is sub-project 4.
 
@@ -396,10 +418,11 @@ All tests run with `go test -race ./...`. `go vet` and `golangci-lint` (installe
 3. Crash test passes 20/20 randomized kill points on Linux.
 4. Downloads are byte-correct with ignored ranges, ETag change mid-transfer (task stops with `RemoteChanged`, no mixed output), 429 storms, resets, truncation, and corrupted responses (corruption is detected when an expected SHA-256 is supplied; otherwise documented as undetectable by design).
 5. Controller simulations show: climbs on per-connection-capped links, holds on bandwidth-capped links, halves under 429.
-6. Peak heap stays within the memory bound for a 1 GiB download.
-7. Existing destination files are never overwritten without `overwrite` policy.
-8. `go vet`, `gofmt`, `golangci-lint` clean; CLI cross-compiles for all six OS/arch targets.
-9. README section documents usage, durability trade-offs, and known limitations.
+6. The harsh-network soak passes for all seeds; offline periods never spend retry budget; outages shorter than `OfflineWaitLimit` never fail a task.
+7. Peak heap stays within the memory bound for a 1 GiB download.
+8. Existing destination files are never overwritten without `overwrite` policy.
+9. `go vet`, `gofmt`, `golangci-lint` clean; CLI cross-compiles for all six OS/arch targets.
+10. README section documents usage, durability trade-offs, and known limitations.
 
 ## 20. Known limitations (to be documented)
 
