@@ -24,12 +24,16 @@ import (
 const seed = 26
 
 // newEngine wires an Engine like cmd/swiftfetch-cli over store, downloading
-// into dir. Its Shutdown is registered with t.Cleanup.
-func newEngine(t *testing.T, store downloader.Store, dir string) *downloader.Engine {
+// into dir with data dir dataDir ("" → a t.TempDir()). Its Shutdown is
+// registered with t.Cleanup.
+func newEngine(t *testing.T, store downloader.Store, dir, dataDir string) *downloader.Engine {
 	t.Helper()
+	if dataDir == "" {
+		dataDir = t.TempDir()
+	}
 	cfg := config.Default()
 	cfg.DownloadDir = dir
-	cfg.DataDir = t.TempDir()
+	cfg.DataDir = dataDir
 	cfg.RetryBaseDelay, cfg.RetryMaxDelay = 5*time.Millisecond, 50*time.Millisecond
 	cfg.StallTimeout = 10 * time.Second
 	cfg.CheckpointInterval = 50 * time.Millisecond
@@ -117,7 +121,7 @@ func TestCheckpointFailureThenRecover(t *testing.T) {
 	db := openDB(t, filepath.Join(t.TempDir(), "swiftfetch.db"))
 	dir := t.TempDir()
 	faulty := &FaultyStore{Store: db, FailSaveCheckpointAfter: 3}
-	eng := newEngine(t, faulty, dir)
+	eng := newEngine(t, faulty, dir, "")
 	task, err := eng.Add(context.Background(), downloader.AddRequest{URL: srv.URL + "/file"})
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +137,7 @@ func TestCheckpointFailureThenRecover(t *testing.T) {
 		t.Fatalf("SaveCheckpoint called %d times, want >= 3", faulty.saveCalls.Load())
 	}
 
-	if err := runTask(t, newEngine(t, db, dir), task.ID); err != nil {
+	if err := runTask(t, newEngine(t, db, dir, ""), task.ID); err != nil {
 		t.Fatalf("recovery run: %v", err)
 	}
 	assertCompleted(t, db, task.ID, size)
@@ -145,7 +149,7 @@ func TestUpdateTaskFailure(t *testing.T) {
 	db := openDB(t, filepath.Join(t.TempDir(), "swiftfetch.db"))
 	dir := t.TempDir()
 	faulty := &FaultyStore{Store: db, FailUpdateTaskAfter: 2}
-	eng := newEngine(t, faulty, dir)
+	eng := newEngine(t, faulty, dir, "")
 	task, err := eng.Add(context.Background(), downloader.AddRequest{URL: srv.URL + "/file"})
 	if err != nil {
 		t.Fatal(err)
@@ -157,8 +161,11 @@ func TestUpdateTaskFailure(t *testing.T) {
 	if !errors.Is(err, ErrInjected) {
 		t.Fatalf("first run error = %v, want it to wrap ErrInjected", err)
 	}
+	if n := faulty.updateCalls.Load(); n < 2 {
+		t.Fatalf("UpdateTask called %d times, want >= 2 (fault never fired)", n)
+	}
 
-	if err := runTask(t, newEngine(t, db, dir), task.ID); err != nil {
+	if err := runTask(t, newEngine(t, db, dir, ""), task.ID); err != nil {
 		t.Fatalf("recovery run: %v", err)
 	}
 	assertCompleted(t, db, task.ID, size)
