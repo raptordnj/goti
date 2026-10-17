@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,7 +30,8 @@ type ClientOptions struct {
 	// check). Tests use it to supply a transport that trusts a test CA.
 	RoundTripper http.RoundTripper
 	// Dialer is a test hook replacing the network dial. The address policy is
-	// applied to the connection it returns.
+	// checked after the connection is made, and the default dialer's dial
+	// timeout and keep-alive do not apply.
 	Dialer func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
@@ -54,6 +56,8 @@ func NewClient(opts ClientOptions) *http.Client {
 
 func newTransport(opts ClientOptions) *http.Transport {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
+	// A proxy would make the address policy see only the proxy's IP.
+	tr.Proxy = nil
 	d := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 15 * time.Second}
 	if opts.Dialer == nil {
 		d.Control = func(_, address string, _ syscall.RawConn) error {
@@ -155,14 +159,54 @@ func HostIsPrivate(ctx context.Context, r *net.Resolver, u *url.URL) (bool, erro
 	return false, nil
 }
 
-var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+type prefixList []netip.Prefix
+
+func (l prefixList) contains(ip netip.Addr) bool {
+	for _, p := range l {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// nonPublicPrefixes are special-purpose ranges not covered by the netip
+// predicates: "this network", CGNAT, IETF protocol assignments, benchmarking,
+// reserved/broadcast, and NAT64.
+var nonPublicPrefixes = prefixList{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+}
 
 // isNonPublic reports whether ip is loopback, private, link-local,
 // multicast, unspecified, ULA or CGNAT (including IPv4-mapped forms).
 func isNonPublic(ip netip.Addr) bool {
 	ip = ip.Unmap()
-	return !ip.IsValid() ||
+	return !ip.IsValid() || nonPublicPrefixes.contains(ip) ||
 		ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() ||
-		ip.IsMulticast() || cgnat.Contains(ip)
+		ip.IsMulticast()
+}
+
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.err }
+
+// RedactError returns err with the URL of any *url.Error in its chain
+// replaced by Redact(URL) in the message. errors.Is/As still see the
+// original chain. Errors without a *url.Error are returned unchanged.
+func RedactError(err error) error {
+	var ue *url.Error
+	if err == nil || !errors.As(err, &ue) || ue.URL == "" {
+		return err
+	}
+	return &redactedError{msg: strings.ReplaceAll(err.Error(), ue.URL, Redact(ue.URL)), err: err}
 }

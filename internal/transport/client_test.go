@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -28,6 +29,12 @@ func TestIsNonPublic(t *testing.T) {
 		"0.0.0.0":         true,
 		"224.0.0.1":       true,
 		"fe80::1":         true,
+		"0.1.2.3":         true,
+		"192.0.0.8":       true,
+		"198.19.0.1":      true,
+		"240.0.0.1":       true,
+		"255.255.255.255": true,
+		"64:ff9b::7f00:1": true,
 		"8.8.8.8":         false,
 		"2606:4700::1":    false,
 		"::ffff:8.8.8.8":  false,
@@ -248,4 +255,54 @@ func mustURL(t *testing.T, s string) *url.URL {
 		t.Fatal(err)
 	}
 	return u
+}
+
+func TestProxyDisabledSoPolicyApplies(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:9")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+	t.Setenv("http_proxy", "http://127.0.0.1:9")
+	srv := faultserver.New(t, faultserver.Options{Size: 10})
+	c := NewClient(ClientOptions{Policy: domain.NetAllowDirectPrivate})
+	if tr := c.Transport.(*http.Transport); tr.Proxy != nil {
+		t.Fatal("Proxy must be nil")
+	}
+	resp, err := get(t, c, srv.URL+"/file", nil)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected error")
+	}
+	if domain.KindOf(err) != domain.KindPolicy {
+		t.Fatalf("kind=%v err=%v", domain.KindOf(err), err)
+	}
+}
+
+func TestRedactError(t *testing.T) {
+	c := NewClient(ClientOptions{Policy: domain.NetAllowAll})
+	resp, err := get(t, c, "http://127.0.0.1:1/x?password=secret123", nil)
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "secret123") {
+		t.Fatal("precondition: raw error should contain the URL")
+	}
+	red := RedactError(err)
+	if strings.Contains(red.Error(), "secret123") {
+		t.Fatalf("leak: %v", red)
+	}
+	var ue *url.Error
+	var oe *net.OpError
+	if !errors.As(red, &ue) || !errors.As(red, &oe) {
+		t.Fatal("chain lost")
+	}
+	if domain.KindOf(red) != domain.KindOf(err) {
+		t.Fatal("kind changed")
+	}
+	pe := domain.NewError(domain.KindPolicy, "x", "", &url.Error{Op: "Get", URL: "http://h/?password=secret123", Err: errors.New("boom")})
+	if got := RedactError(pe); domain.KindOf(got) != domain.KindPolicy {
+		t.Fatal("wrapped domain kind lost")
+	}
+	if RedactError(nil) != nil {
+		t.Fatal("nil")
+	}
 }

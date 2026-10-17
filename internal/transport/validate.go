@@ -2,6 +2,7 @@ package transport
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/raptordnj/swiftfetch/internal/domain"
@@ -24,7 +25,7 @@ func ReadValidators(h http.Header) domain.Validators {
 // interval, so a changed resource is never misreported as a bad interval.
 func ValidateRangeResponse(resp *http.Response, want domain.ByteRange, total int64, v domain.Validators) error {
 	if resp.StatusCode != http.StatusPartialContent {
-		return domain.NewError(domain.KindIntegrity, "ranged request answered with status "+http.StatusText(resp.StatusCode)+", want 206", "", nil)
+		return domain.NewError(domain.KindIntegrity, "ranged request answered with status "+strconv.Itoa(resp.StatusCode)+", want 206", "", nil)
 	}
 	cr, err := ParseContentRange(resp.Header.Get("Content-Range"))
 	if err != nil || cr.Unsatisfied {
