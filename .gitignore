@@ -2,3 +2,4 @@
 *.swiftfetch-part
 coverage.out
 .superpowers/
+/swiftfetch-cli
