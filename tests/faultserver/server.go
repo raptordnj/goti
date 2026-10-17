@@ -42,7 +42,7 @@ type Options struct {
 	UnknownLength         bool  // no Content-Length (chunked); 206 totals are "*"
 	IgnoreRanges          bool  // always 200 with the full body; no Accept-Ranges
 	MalformedContentRange bool  // 206 Content-Range lacks the "/total" part
-	WrongTotal            bool  // 206 Content-Range total is Size+1
+	WrongTotal            bool  // 206 Content-Range total is Size+1 when the range starts after 0 (start-0 responses report Size)
 	ShortBodyBy           int64 // body ends this many bytes before Content-Length
 	LongBodyBy            int64 // body and Content-Length exceed the requested length by this much
 
@@ -389,7 +389,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, idx int, o *O
 			switch {
 			case o.UnknownLength:
 				total = "*"
-			case o.WrongTotal:
+			case o.WrongTotal && start > 0:
 				total = strconv.FormatInt(o.Size+1, 10)
 			}
 			cr := fmt.Sprintf("bytes %d-%d/%s", start, end-1, total)

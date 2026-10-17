@@ -371,6 +371,9 @@ func TestContentRangeLies(t *testing.T) {
 	if got := do(t, c, s.URL+"/file", h).Header.Get("Content-Range"); got != "bytes 10-19/101" {
 		t.Errorf("wrong total: %q", got)
 	}
+	if got := do(t, c, s.URL+"/file", map[string]string{"Range": "bytes=0-0"}).Header.Get("Content-Range"); got != "bytes 0-0/100" {
+		t.Errorf("wrong total at start 0: %q", got)
+	}
 	s = New(t, Options{Size: 100, MalformedContentRange: true})
 	if got := do(t, c, s.URL+"/file", h).Header.Get("Content-Range"); got != "bytes 10-19" {
 		t.Errorf("malformed: %q", got)
