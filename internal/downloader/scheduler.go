@@ -5,6 +5,7 @@ package downloader
 import (
 	"crypto/sha256"
 	"encoding"
+	"errors"
 	"fmt"
 	"hash"
 	"math"
@@ -34,7 +35,7 @@ const (
 // End()-Pos(); End() may shrink at any time through TrySplit, but never below
 // Pos()+bufSize as observed by the splitter, so a buffer that was sized from a
 // stale End() still never crosses the new End. After writing n bytes the owner
-// calls Write (hash + advance) or Hasher().Write followed by Advance. When
+// calls Write (hash + advance). When
 // Pos()==End() it calls Complete; if Complete reports false, End() moved and
 // the owner keeps writing.
 type Segment struct {
@@ -64,8 +65,8 @@ func (g *Segment) Pos() int64 { return g.pos.Load() }
 // Remaining returns End()-Pos().
 func (g *Segment) Remaining() int64 { return g.End() - g.Pos() }
 
-// Advance moves Pos forward by n bytes. Owner only.
-func (g *Segment) Advance(n int64) { g.pos.Add(n) }
+// advance moves Pos forward by n bytes without hashing. Owner only.
+func (g *Segment) advance(n int64) { g.pos.Add(n) }
 
 // Hasher returns the SHA-256 state covering [Start, Pos). Owner only; use
 // Write instead when checkpoints may run concurrently.
@@ -86,6 +87,10 @@ type Scheduler struct {
 	segs  []*Segment // sorted by Start, pairwise disjoint, union [0,total)
 	total int64
 	open  bool
+
+	// splitHook, if set (tests only), runs between publishing a split End
+	// and re-checking the victim's Pos.
+	splitHook func(victim *Segment)
 }
 
 // NewScheduler splits [0,total) into fresh segments of chunk bytes (the last
@@ -117,14 +122,20 @@ func NewOpenScheduler() *Scheduler {
 }
 
 // Finish fixes the size of an open scheduler at n bytes (EOF reached).
-func (s *Scheduler) Finish(n int64) {
+func (s *Scheduler) Finish(n int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.open {
+		return errors.New("scheduler: Finish on a scheduler of known size")
+	}
+	g := s.segs[0]
+	if n < 0 || n < g.Pos() {
+		return fmt.Errorf("scheduler: Finish(%d) below written position %d", n, g.Pos())
+	}
 	s.total = n
 	s.open = false
-	if len(s.segs) == 1 {
-		s.segs[0].end.Store(n)
-	}
+	g.end.Store(n)
+	return nil
 }
 
 // Total returns the download size (math.MaxInt64 while open).
@@ -145,6 +156,9 @@ func newSegment(start, end, pos int64) *Segment {
 // must cover [0,total) exactly with disjoint non-empty segments. In-progress
 // records without a hasher state restart at Start.
 func RestoreScheduler(total int64, recs []domain.SegmentRecord) (*Scheduler, error) {
+	if total < 0 || total == math.MaxInt64 {
+		return nil, fmt.Errorf("scheduler: invalid total %d", total)
+	}
 	sorted := append([]domain.SegmentRecord(nil), recs...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Start < sorted[j].Start })
 	s := &Scheduler{total: total}
@@ -163,6 +177,8 @@ func RestoreScheduler(total int64, recs []domain.SegmentRecord) (*Scheduler, err
 		next = r.End
 		g := newSegment(r.Start, r.End, r.Pos)
 		switch {
+		case r.Done && len(r.Hash) != sha256.Size:
+			return nil, fmt.Errorf("scheduler: done segment %d has %d-byte hash", r.Start, len(r.Hash))
 		case r.Done:
 			g.state = segDone
 			g.pos.Store(r.End)
@@ -301,6 +317,9 @@ func (s *Scheduler) TrySplit(worker int, minSplit, bufSize int64, rate func(*Seg
 		return nil, false
 	}
 	victim.end.Store(sp)
+	if s.splitHook != nil {
+		s.splitHook(victim)
+	}
 	// An owner write in flight began at the current (unadvanced) Pos and
 	// spans at most bufSize bytes. If the owner advanced between our read and
 	// the store, that write might cross sp: undo the split.

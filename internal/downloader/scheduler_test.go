@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"math"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,15 +16,21 @@ import (
 
 func one(*Segment) float64 { return 1 }
 
-// coverageErr reports violations of disjointness and exact coverage of [0,total).
+// coverageErr reports violations of disjointness, exact coverage of [0,total)
+// and Start <= Pos <= End, using the live segments.
 func coverageErr(s *Scheduler, total int64) error {
-	recs := s.Records()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var next int64
-	for _, r := range recs {
-		if r.Start != next || r.End <= r.Start {
-			return fmt.Errorf("bad coverage at %d: %+v", next, r)
+	for _, g := range s.segs {
+		end, pos := g.End(), g.Pos()
+		if g.Start != next || end <= g.Start {
+			return fmt.Errorf("bad coverage at %d: [%d,%d)", next, g.Start, end)
 		}
-		next = r.End
+		if pos < g.Start || pos > end {
+			return fmt.Errorf("pos %d outside [%d,%d)", pos, g.Start, end)
+		}
+		next = end
 	}
 	if next != total {
 		return fmt.Errorf("coverage ends at %d, want %d", next, total)
@@ -108,7 +116,7 @@ func TestCompleteRequiresFull(t *testing.T) {
 func TestSplitAboveWrittenPos(t *testing.T) {
 	s := NewScheduler(4<<20, 4<<20)
 	g, _ := s.Acquire(0)
-	g.Advance(900 << 10)
+	g.advance(900 << 10)
 	ng, ok := s.TrySplit(1, 1<<20, 64<<10, one)
 	if !ok {
 		t.Fatal("split refused")
@@ -126,7 +134,7 @@ func TestSplitAboveWrittenPos(t *testing.T) {
 func TestSplitRefusesSmall(t *testing.T) {
 	s := NewScheduler(4<<20, 4<<20)
 	g, _ := s.Acquire(0)
-	g.Advance(2 << 20) // remaining 2 MiB == 2*minSplit
+	g.advance(2 << 20) // remaining 2 MiB == 2*minSplit
 	if _, ok := s.TrySplit(1, 1<<20, 64<<10, one); ok {
 		t.Fatal("split of small remainder")
 	}
@@ -171,7 +179,15 @@ func TestOpenSchedulerFinish(t *testing.T) {
 	if _, ok := s.TrySplit(1, 1<<20, 64<<10, one); ok {
 		t.Fatal("split of open segment")
 	}
-	s.Finish(1234)
+	if err := s.Finish(1233); err == nil {
+		t.Fatal("Finish below written pos accepted")
+	}
+	if err := s.Finish(1234); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Finish(1234); err == nil {
+		t.Fatal("second Finish accepted")
+	}
 	if !s.Complete(g) || !s.AllDone() || s.Total() != 1234 {
 		t.Fatal("finish/complete failed")
 	}
@@ -212,35 +228,79 @@ func TestRecordsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRestoreRejectsBadInput(t *testing.T) {
+	if _, err := RestoreScheduler(math.MaxInt64, []domain.SegmentRecord{{Start: 0, End: math.MaxInt64}}); err == nil {
+		t.Fatal("open total accepted")
+	}
+	if _, err := RestoreScheduler(10, []domain.SegmentRecord{{Start: 0, End: 10, Pos: 10, Done: true, Hash: []byte{1}}}); err == nil {
+		t.Fatal("short hash accepted")
+	}
+}
+
+// splitOK asserts the post-split shape: owner ends at S, new segment [S, oldEnd).
+func splitOK(t *testing.T, victim, ng *Segment, oldEnd int64) {
+	t.Helper()
+	if victim.End() != ng.Start || ng.End() != oldEnd || ng.Pos() != ng.Start {
+		t.Fatalf("bad split: owner end %d, new [%d,%d) pos %d, old end %d",
+			victim.End(), ng.Start, ng.End(), ng.Pos(), oldEnd)
+	}
+}
+
+// findVictim returns the segment containing offset at.
+func findVictim(s *Scheduler, at int64) *Segment {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, g := range s.segs {
+		if g.Start <= at && at < g.End() {
+			return g
+		}
+	}
+	return nil
+}
+
 func TestSchedulerRandomOps(t *testing.T) {
 	const workers = 8
 	rng := rand.New(rand.NewSource(42)) //nolint:gosec // deterministic test seed
 	buf := make([]byte, 64<<10)
+	splits := 0
 	for it := 0; it < 500; it++ {
 		total := int64(rng.Intn(64<<20) + 1)
-		s := NewScheduler(total, int64(rng.Intn(8<<20)+1))
+		s := NewScheduler(total, int64(rng.Intn(16<<20)+1))
 		held := make([]*Segment, workers)
 		for op := 0; op < 200; op++ {
 			w := rng.Intn(workers)
 			g := held[w]
-			switch k := rng.Intn(5); {
-			case g == nil && k < 4:
+			k := rng.Intn(6)
+			switch {
+			case g == nil && k < 3:
 				held[w], _ = s.Acquire(w)
 			case g == nil:
-				held[w], _ = s.TrySplit(w, 1<<20, 64<<10, one)
-			case k == 0 || k == 1:
-				n := min(int64(rng.Intn(len(buf))+1), g.Remaining())
-				g.Write(buf[:n])
-			case k == 2:
+				// Idle worker: record every candidate's end to verify the split.
+				ends := map[*Segment]int64{}
+				for _, h := range held {
+					if h != nil {
+						ends[h] = h.End()
+					}
+				}
+				ng, ok := s.TrySplit(w, 1<<20, 64<<10, one)
+				if ok {
+					splits++
+					v := findVictim(s, ng.Start-1)
+					splitOK(t, v, ng, ends[v])
+					held[w] = ng
+				}
+			case k <= 2:
+				// Advance by up to 4 buffers, never past End.
+				for i := rng.Intn(4); i >= 0 && g.Remaining() > 0; i-- {
+					g.Write(buf[:min(int64(len(buf)), g.Remaining())])
+				}
+			case k == 3:
 				s.Release(g)
 				held[w] = nil
-			case k == 3:
+			default:
 				if s.Complete(g) {
 					held[w] = nil
 				}
-			default:
-				s.Release(g)
-				held[w], _ = s.TrySplit(w, 1<<20, 64<<10, one)
 			}
 			checkCoverage(t, s, total)
 		}
@@ -265,11 +325,53 @@ func TestSchedulerRandomOps(t *testing.T) {
 			t.Fatalf("iteration %d not done", it)
 		}
 	}
+	t.Logf("successful splits: %d", splits)
+	if splits < 100 {
+		t.Fatalf("only %d splits exercised", splits)
+	}
+}
+
+// TestSplitUndoWhenOwnerAdvances forces the owner to write between the
+// splitter's Pos read and its re-check; the split must be undone.
+func TestSplitUndoWhenOwnerAdvances(t *testing.T) {
+	data := make([]byte, 4<<20)
+	for i := range data {
+		data[i] = byte(i * 13)
+	}
+	s := NewScheduler(4<<20, 4<<20)
+	g, _ := s.Acquire(0)
+	g.Write(data[:100<<10])
+	s.splitHook = func(v *Segment) {
+		// Owner raced ahead by a full buffer-plus, past S-bufSize.
+		for v.Pos()+64<<10 <= v.End() {
+			v.Write(data[v.Pos() : v.Pos()+64<<10])
+		}
+	}
+	if _, ok := s.TrySplit(1, 1<<20, 64<<10, one); ok {
+		t.Fatal("split not undone")
+	}
+	s.splitHook = nil
+	if g.End() != 4<<20 || s.Pending() != 0 {
+		t.Fatalf("end not restored: %d", g.End())
+	}
+	checkCoverage(t, s, 4<<20)
+	for g.Remaining() > 0 {
+		g.Write(data[g.Pos():min(g.Pos()+64<<10, g.End())])
+	}
+	if !s.Complete(g) {
+		t.Fatal("complete")
+	}
+	want := sha256.Sum256(data)
+	if !bytes.Equal(s.Records()[0].Hash, want[:]) {
+		t.Fatal("hash mismatch after undo")
+	}
 }
 
 // TestSchedulerConcurrent runs owners as goroutines that follow the owner
-// contract while idle workers split, and a checkpointer snapshots Records.
+// contract (bufSize writes truncated to End) while idle workers split and a
+// checkpointer snapshots Records.
 func TestSchedulerConcurrent(t *testing.T) {
+	const bufSize = 64 << 10
 	var splits atomic.Int64
 	for it := 0; it < 20; it++ {
 		total := int64(32<<20 + it*4097)
@@ -290,6 +392,7 @@ func TestSchedulerConcurrent(t *testing.T) {
 						t.Error(err)
 						return
 					}
+					_ = s.Records()
 				}
 			}
 		}()
@@ -301,7 +404,7 @@ func TestSchedulerConcurrent(t *testing.T) {
 				for {
 					g, ok := s.Acquire(w)
 					if !ok {
-						g, ok = s.TrySplit(w, 1<<20, 64<<10, one)
+						g, ok = s.TrySplit(w, 1<<20, bufSize, one)
 						if ok {
 							splits.Add(1)
 						}
@@ -310,11 +413,12 @@ func TestSchedulerConcurrent(t *testing.T) {
 						if s.AllDone() {
 							return
 						}
+						runtime.Gosched()
 						continue
 					}
 					for {
 						for p := g.Pos(); p < g.End(); p = g.Pos() {
-							n := min(int64(16<<10), g.End()-p)
+							n := min(int64(bufSize), g.End()-p)
 							g.Write(data[p : p+n])
 						}
 						if s.Complete(g) {
@@ -331,7 +435,7 @@ func TestSchedulerConcurrent(t *testing.T) {
 		for _, r := range s.Records() {
 			want := sha256.Sum256(data[r.Start:r.End])
 			if !r.Done || r.Start != next || !bytes.Equal(r.Hash, want[:]) {
-				t.Fatalf("segment %+v bad", r.Start)
+				t.Fatalf("segment %d bad", r.Start)
 			}
 			next = r.End
 		}
