@@ -41,7 +41,7 @@ type engFixture struct {
 	wrapRT func(http.RoundTripper) http.RoundTripper
 }
 
-func newEngFixture(t *testing.T, opts faultserver.Options, mod func(*config.Config), depMods ...func(*EngineDeps)) *engFixture {
+func newEngFixture(t testing.TB, opts faultserver.Options, mod func(*config.Config), depMods ...func(*EngineDeps)) *engFixture {
 	t.Helper()
 	opts.Seed = engSeed
 	if opts.ETag == "" && !opts.NoValidators {

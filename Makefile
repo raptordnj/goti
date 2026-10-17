@@ -1,4 +1,4 @@
-.PHONY: test race lint fuzz build cross
+.PHONY: test race lint fuzz bench build cross
 
 test:
 	go test ./...
@@ -16,6 +16,10 @@ fuzz:
 			go test $$pkg -run '^$$' -fuzz "^$$f$$" -fuzztime=30s || exit 1; \
 		done; \
 	done
+
+bench:
+	go test ./internal/downloader -run '^$$' -bench '^BenchmarkSingleVsMultipart$$' -benchtime=3x -benchmem
+	go test ./internal/downloader -run '^$$' -bench '^BenchmarkInspect$$' -benchmem
 
 build:
 	CGO_ENABLED=0 go build -o bin/swiftfetch-cli ./cmd/swiftfetch-cli
