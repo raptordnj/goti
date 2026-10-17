@@ -276,3 +276,22 @@ func TestMultipart5GiB(t *testing.T) {
 		t.Fatal("5 GiB content hash mismatch")
 	}
 }
+
+func TestMultipartRequestsOriginalURLNotFinalURL(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts faultserver.Options
+	}{
+		{"ranged", faultserver.Options{Size: 8 << 20}},
+		{"fill", faultserver.Options{Size: 8 << 20, RangeIgnoredAfter: 2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newMPFixture(t, tc.opts, 2, 4, 1<<20)
+			f.env.task.FinalURL = redactedFinalURL
+			if err := f.run(t); err != nil {
+				t.Fatal(err)
+			}
+			f.checkFile(t, tc.opts.Size)
+		})
+	}
+}

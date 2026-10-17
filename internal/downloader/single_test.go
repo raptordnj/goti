@@ -313,3 +313,17 @@ func TestCopySegmentShortBody(t *testing.T) {
 		t.Fatalf("Pos = %d, want 60", seg.Pos())
 	}
 }
+
+// redactedFinalURL is what Task.FinalURL holds after inspection: a display
+// string that must never be used as a request target.
+const redactedFinalURL = "http://redacted.invalid/file?token=REDACTED"
+
+func TestSingleRequestsOriginalURLNotFinalURL(t *testing.T) {
+	const size = 1 << 20
+	f := newSingleFixture(t, faultserver.Options{Size: size})
+	f.env.task.FinalURL = redactedFinalURL
+	if err := run(t, f); err != nil {
+		t.Fatal(err)
+	}
+	f.checkFile(t, size)
+}

@@ -74,6 +74,9 @@ func (v Validators) Matches(o Validators) bool {
 }
 
 // Task is the persistent record of one download.
+//
+// FinalURL is the redacted post-redirect URL, for display only; requests
+// always target OriginalURL.
 type Task struct {
 	ID, OriginalURL, FinalURL, DestDir, FileName, TempPath, FinalPath string
 

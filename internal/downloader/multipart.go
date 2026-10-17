@@ -369,10 +369,9 @@ func (m *multipart) fetch(ctx context.Context, slot *workerSlot, seg *Segment) e
 	want := domain.ByteRange{Start: seg.Pos(), End: seg.End()}
 	reqCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	target := env.task.FinalURL
-	if target == "" {
-		target = env.task.OriginalURL
-	}
+	// Always the original URL: FinalURL is redacted, display-only; the
+	// client re-follows redirects.
+	target := env.task.OriginalURL
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, target, nil)
 	if err != nil {
 		return domain.NewError(domain.KindPermanent, "invalid URL "+transport.Redact(target), "", nil)
@@ -448,10 +447,9 @@ func runFill(ctx context.Context, env *runEnv) error {
 
 	reqCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	target := env.task.FinalURL
-	if target == "" {
-		target = env.task.OriginalURL
-	}
+	// Always the original URL: FinalURL is redacted, display-only; the
+	// client re-follows redirects.
+	target := env.task.OriginalURL
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, target, nil)
 	if err != nil {
 		return domain.NewError(domain.KindPermanent, "invalid URL "+transport.Redact(target), "", nil)
