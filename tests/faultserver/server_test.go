@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"runtime"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -245,7 +246,7 @@ func TestChangeETagAfter(t *testing.T) {
 	if tags[0] != `"abc"` || tags[1] != tags[0] || tags[2] == tags[0] {
 		t.Fatalf("etags = %q", tags)
 	}
-	if sha256.Sum256(bodies[1]) != ExpectedSHA256(5, 1000) || sha256.Sum256(bodies[2]) != ExpectedSHA256(6, 1000) {
+	if sha256.Sum256(bodies[1]) != ExpectedSHA256(5, 1000) || sha256.Sum256(bodies[2]) != ExpectedSHA256(ChangedSeed(5), 1000) {
 		t.Fatal("content did not switch to seed+1 with the ETag")
 	}
 }
@@ -490,6 +491,74 @@ func TestDrops(t *testing.T) {
 	}
 	if early == 0 {
 		t.Fatal("no request ended early")
+	}
+}
+
+func TestDropsDeterministicPerRequest(t *testing.T) {
+	pattern := func() []int {
+		s := New(t, Options{Size: 100_000, Seed: 77, DropProbability: 0.1, JitterMax: time.Millisecond})
+		c := newClient(t)
+		var early []int
+		for i := range 20 {
+			b, err := io.ReadAll(do(t, c, s.URL+"/file", nil).Body)
+			if err != nil || len(b) < 100_000 {
+				early = append(early, i)
+			}
+		}
+		return early
+	}
+	a, b := pattern(), pattern()
+	if len(a) == 0 || len(a) == 20 {
+		t.Fatalf("degenerate drop pattern %v", a)
+	}
+	if !slices.Equal(a, b) {
+		t.Fatalf("same seed gave different early-ended requests: %v vs %v", a, b)
+	}
+}
+
+func TestWriteLatencyOncePerResponse(t *testing.T) {
+	s := New(t, Options{Size: 100_000, WritePiece: 10_000, WriteLatency: 300 * time.Millisecond})
+	start := time.Now()
+	if n := len(readAll(t, do(t, newClient(t), s.URL+"/file", nil))); n != 100_000 {
+		t.Fatalf("len = %d", n)
+	}
+	// Ten pieces: once-per-response latency is ~300 ms, per-piece would be ~3 s.
+	if d := time.Since(start); d < 300*time.Millisecond || d > 900*time.Millisecond {
+		t.Fatalf("took %v, want about 300ms", d)
+	}
+}
+
+func TestCleanupWithStalledReader(t *testing.T) {
+	var resp *http.Response
+	done := make(chan time.Duration, 1)
+	go func() {
+		var cleanupStart time.Time
+		t.Run("server", func(t *testing.T) {
+			s := New(t, Options{Size: 1 << 30})
+			req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, s.URL+"/file", nil)
+			var err error
+			resp, err = newClient(t).Do(req)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			// Never read the body: let the handler block in Write once the
+			// socket buffers fill, then measure how long cleanup takes.
+			time.Sleep(200 * time.Millisecond)
+			cleanupStart = time.Now()
+		})
+		done <- time.Since(cleanupStart)
+	}()
+	select {
+	case d := <-done:
+		if d > time.Second {
+			t.Fatalf("cleanup took %v", d)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("cleanup hung with a client that stopped reading")
+	}
+	if resp != nil {
+		_ = resp.Body.Close()
 	}
 }
 

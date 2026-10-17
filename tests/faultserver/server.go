@@ -50,7 +50,7 @@ type Options struct {
 	WeakETag           bool      // send the ETag as W/"..." (never satisfies If-Range)
 	LastModified       time.Time // sent when non-zero
 	NoValidators       bool      // suppress ETag and Last-Modified
-	ChangeETagAfter    int       // after K requests: ETag+"-changed", Seed+1, LastModified+1h
+	ChangeETagAfter    int       // after K requests: ETag+"-changed", content ChangedSeed(Seed), LastModified+1h
 	ContentDisposition string    // sent verbatim when non-empty
 
 	RedirectChain int    // hop count for /redirect (no explicit N)
@@ -66,8 +66,8 @@ type Options struct {
 
 	BytesPerSecondPerConn int64         // token bucket per response (one HTTP/1.1 connection at a time)
 	BytesPerSecondGlobal  int64         // token bucket shared by all responses
-	JitterMax             time.Duration // random delay in [0, JitterMax) before each piece
-	WriteLatency          time.Duration // fixed delay before each piece
+	JitterMax             time.Duration // random delay in [0, JitterMax) before each piece (same RNG as drops)
+	WriteLatency          time.Duration // delay once per response before the first body byte (simulated RTT)
 	WritePiece            int           // bytes per write+flush (default 16 KiB)
 
 	ResetAfterBytes     int64   // abort the connection with RST after this many body bytes
@@ -75,7 +75,7 @@ type Options struct {
 	CorruptAt           []int64 // resource offsets whose byte is inverted on the wire
 	CloseAfterBytes     int64   // close the connection (FIN) after this many body bytes
 	RangeIgnoredAfter   int     // after K requests, Range is ignored (200)
-	DropProbability     float64 // probability per piece of aborting the connection (seeded RNG)
+	DropProbability     float64 // probability per piece of aborting the connection (RNG seeded from Seed and the request number)
 	BlackholeAfterBytes int64   // stop writing after this many body bytes and hang until the client goes away
 	BlackholeOnNth      int     // apply the blackhole only to the Nth request
 
@@ -105,7 +105,6 @@ type Server struct {
 
 	mu           sync.Mutex
 	opts         Options
-	rng          *rand.Rand
 	requests     int
 	fileRequests int
 	active       int
@@ -130,7 +129,6 @@ func New(t testing.TB, opts Options) *Server {
 		stop:   make(chan struct{}),
 		global: rate.NewLimiter(rate.Inf, 0),
 		opts:   cloneOptions(opts),
-		rng:    rand.New(rand.NewPCG(opts.Seed, 0x6661756c74)), //nolint:gosec // deterministic fault injection
 		conns:  make(map[net.Conn]struct{}),
 	}
 	s.syncGlobalLimiter()
@@ -156,8 +154,9 @@ func New(t testing.TB, opts Options) *Server {
 	return s
 }
 
-// SetOptions mutates the options under the server lock; it affects requests
-// that arrive afterwards.
+// SetOptions mutates the options; it affects requests that arrive afterwards.
+// f runs while the server lock is held, so it must not call other Server
+// methods (that would deadlock).
 func (s *Server) SetOptions(f func(*Options)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -202,6 +201,9 @@ func (s *Server) Dialer() func(ctx context.Context, network, addr string) (net.C
 
 func (s *Server) close() error {
 	s.cancel() // unblocks blackholed, throttled and sleeping handlers
+	// httptest.Server.Close waits for active handlers; one blocked writing to a
+	// client that stopped reading only returns once its connection is closed.
+	s.closeConns()
 	close(s.stop)
 	s.scheduler.Wait()
 	s.hs.Close()
@@ -339,7 +341,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, idx int, o *O
 
 	seed, etag, lm := o.Seed, o.ETag, o.LastModified
 	if o.ChangeETagAfter > 0 && fn > o.ChangeETagAfter {
-		seed++
+		seed = ChangedSeed(seed)
 		if etag != "" {
 			etag += "-changed"
 		}
@@ -495,19 +497,26 @@ func (s *Server) writeBody(ctx context.Context, w http.ResponseWriter, o *Option
 	cut(o.CloseAfterBytes > 0, o.CloseAfterBytes, endClose)
 	cut((o.BlackholeAfterBytes > 0 || o.BlackholeOnNth > 0) && (o.BlackholeOnNth <= 0 || fn == o.BlackholeOnNth), o.BlackholeAfterBytes, endBlackhole)
 
+	// Drops and jitter come from a per-response RNG keyed by (Seed, request
+	// number), so a seed reproduces the same per-request pattern regardless of
+	// how concurrent requests are scheduled.
+	rng := rand.New(rand.NewPCG(o.Seed, uint64(fn))) //nolint:gosec // deterministic fault injection; fn is positive
 	piece := writePiece(o)
 	buf := make([]byte, min(int64(piece), max(stop, 0)))
 	var perConn *rate.Limiter
 	if o.BytesPerSecondPerConn > 0 {
 		perConn = rate.NewLimiter(rate.Limit(o.BytesPerSecondPerConn), piece)
 	}
+	if stop > 0 && o.WriteLatency > 0 && !sleep(ctx, o.WriteLatency) {
+		return
+	}
 	for written := int64(0); written < stop; {
-		if s.roll(o.DropProbability) {
+		if o.DropProbability > 0 && rng.Float64() < o.DropProbability {
 			abort(rc, true)
 			return
 		}
 		k := min(int64(piece), stop-written)
-		if !s.pace(ctx, o, perConn, int(k)) {
+		if !s.pace(ctx, o, rng, perConn, int(k)) {
 			return
 		}
 		chunk := buf[:k]
@@ -535,27 +544,11 @@ func (s *Server) writeBody(ctx context.Context, w http.ResponseWriter, o *Option
 	}
 }
 
-// roll reports a drop with probability p using the seeded RNG.
-func (s *Server) roll(p float64) bool {
-	if p <= 0 {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.rng.Float64() < p
-}
-
-// pace applies per-piece latency, jitter and bandwidth limits; it reports
-// false when the request context ended.
-func (s *Server) pace(ctx context.Context, o *Options, perConn *rate.Limiter, k int) bool {
-	if o.WriteLatency > 0 && !sleep(ctx, o.WriteLatency) {
-		return false
-	}
+// pace applies per-piece jitter and bandwidth limits; it reports false when
+// the request context ended.
+func (s *Server) pace(ctx context.Context, o *Options, rng *rand.Rand, perConn *rate.Limiter, k int) bool {
 	if o.JitterMax > 0 {
-		s.mu.Lock()
-		d := time.Duration(s.rng.Int64N(int64(o.JitterMax)))
-		s.mu.Unlock()
-		if !sleep(ctx, d) {
+		if !sleep(ctx, time.Duration(rng.Int64N(int64(o.JitterMax)))) {
 			return false
 		}
 	}
@@ -615,7 +608,7 @@ func (s *Server) runOutages(outages []Outage) {
 		if !s.sleepUntil(s.start.Add(o.After + o.Duration)) {
 			return
 		}
-		if err := s.ln.up(); err != nil {
+		if err := s.ln.up(s.stop); err != nil {
 			s.mu.Lock()
 			s.outageErr = fmt.Errorf("re-listen after outage: %w", err)
 			s.mu.Unlock()
@@ -707,7 +700,8 @@ func (l *outageListener) down() {
 	l.reopened = make(chan struct{})
 }
 
-func (l *outageListener) up() error {
+// up re-listens on the original address, giving up quietly if stop closes.
+func (l *outageListener) up(stop <-chan struct{}) error {
 	var (
 		inner net.Listener
 		err   error
@@ -718,6 +712,8 @@ func (l *outageListener) up() error {
 		}
 		select {
 		case <-time.After(50 * time.Millisecond):
+		case <-stop:
+			return nil
 		case <-l.done:
 			return nil
 		}

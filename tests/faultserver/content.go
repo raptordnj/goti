@@ -15,6 +15,11 @@ func Byte(seed uint64, i int64) byte {
 	return byte(z ^ (z >> 31)) //nolint:gosec // truncation to the low byte is intended
 }
 
+// ChangedSeed returns the content seed served once ChangeETagAfter has
+// triggered: seed ^ 0x9e3779b97f4a7c15, so the new representation differs at
+// essentially every offset (seed+1 would only permute neighbouring bytes).
+func ChangedSeed(seed uint64) uint64 { return seed ^ 0x9e3779b97f4a7c15 }
+
 // fill writes the generated content starting at offset off into buf.
 func fill(buf []byte, seed uint64, off int64) {
 	for j := range buf {
