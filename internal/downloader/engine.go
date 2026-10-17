@@ -105,6 +105,8 @@ type runHandle struct {
 type Engine struct {
 	d EngineDeps
 
+	bufPool *sync.Pool // *[]byte of bufSize, shared by all runs and hashing
+
 	mu       sync.Mutex
 	running  map[string]*runHandle
 	shutting bool
@@ -130,7 +132,7 @@ func NewEngine(d EngineDeps) *Engine {
 			})
 		}
 	}
-	return &Engine{d: d, running: map[string]*runHandle{}}
+	return &Engine{d: d, bufPool: newBufPool(), running: map[string]*runHandle{}}
 }
 
 func (e *Engine) publish(ev events.Event) {

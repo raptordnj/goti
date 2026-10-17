@@ -19,7 +19,7 @@ import (
 const (
 	tempSuffix     = ".swiftfetch-part"
 	maxTempRetries = 1000
-	hashBufSize    = 1 << 20
+	hashBufSize    = 64 << 10
 )
 
 // TempFile is a download's partial file. WriteAt and ReadAt are safe for

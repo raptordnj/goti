@@ -400,7 +400,7 @@ func (r *taskRun) download(ctx context.Context, d strategy.Decision, file *stora
 			r.written.Add(n)
 		},
 		onRetry: func(a domain.Attempt) { r.recordAttempt(ctx, a) },
-		bufPool: newBufPool(),
+		bufPool: r.e.bufPool,
 	}
 	var ck *checkpointer
 	if d.SizeKnown {
@@ -522,7 +522,9 @@ func (r *taskRun) finish(ctx context.Context, file *storage.TempFile, sched *Sch
 	r.t.Size = size
 	verify := verifiedSegments
 	if r.t.ExpectedSHA256 != "" {
-		got, err := storage.HashRange(file, domain.ByteRange{Start: 0, End: size})
+		bp, _ := r.e.bufPool.Get().(*[]byte)
+		got, err := storage.HashRangeBuf(file, domain.ByteRange{Start: 0, End: size}, *bp)
+		r.e.bufPool.Put(bp)
 		if err != nil {
 			return domain.NewError(domain.KindLocal, "hash temp file: "+err.Error(), "check the disk", err)
 		}
