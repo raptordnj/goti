@@ -341,8 +341,13 @@ func parseRetryAfter(v string, now time.Time) time.Duration {
 }
 
 // transportErrorKind classifies a failed request: network-unreachable
-// failures are KindOffline, everything else KindTransient.
+// failures are KindOffline, errors already classified by the client (address
+// and redirect policy) keep their kind, everything else is KindTransient.
 func transportErrorKind(err error) domain.ErrorKind {
+	var de *domain.Error
+	if errors.As(err, &de) {
+		return de.Kind
+	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) ||
 		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENETUNREACH) || errors.Is(err, syscall.EHOSTUNREACH) {

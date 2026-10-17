@@ -358,3 +358,23 @@ func TestInspectProbe2RetryExhausted(t *testing.T) {
 		}
 	}
 }
+
+// A redirect refused by the client's address policy is a Policy error, not
+// a transient one (otherwise the engine retries it until the budget runs out).
+func TestInspectRedirectToPrivatePolicy(t *testing.T) {
+	srv := faultserver.New(t, faultserver.Options{Size: 1 << 10, ETag: "v1", RedirectChain: 1})
+	srv.SetOptions(func(o *faultserver.Options) { o.RedirectTo = srv.URL + "/file" })
+	in := newInspector(nil)
+	// Redirects to a non-public address are refused by the redirect check;
+	// the first hop is allowed.
+	in.Client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return domain.NewError(domain.KindPolicy, "connection to non-public address refused by network policy", "", nil)
+	}
+	obs, err := in.Inspect(context.Background(), srv.URL+"/redirect", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.Err == nil || obs.Err.Kind != domain.KindPolicy {
+		t.Fatalf("obs.Err = %v, want kind policy", obs.Err)
+	}
+}
