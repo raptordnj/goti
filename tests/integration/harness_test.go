@@ -30,10 +30,11 @@ const seed = 25
 // harness is an Engine wired like cmd/swiftfetch-cli (real SQLite, event
 // bus, transport.NewClient) over one fault server.
 type harness struct {
-	eng *downloader.Engine
-	db  *persistence.DB
-	srv *faultserver.Server
-	dir string
+	eng  *downloader.Engine
+	db   *persistence.DB
+	srv  *faultserver.Server
+	dir  string
+	seed uint64
 
 	mu  sync.Mutex
 	evs []events.Event
@@ -43,12 +44,16 @@ type harnessOpts struct {
 	cfg func(*config.Config)
 	// dial replaces the client's network dial (nil: the server's Dialer).
 	dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// offlineBaseDelay replaces the engine's OfflineBaseDelay (0: 100 ms).
+	offlineBaseDelay time.Duration
 }
 
 func newHarness(t *testing.T, opts faultserver.Options, ho harnessOpts) *harness {
 	t.Helper()
-	opts.Seed = seed
-	h := &harness{srv: faultserver.New(t, opts), dir: t.TempDir()}
+	if opts.Seed == 0 {
+		opts.Seed = seed
+	}
+	h := &harness{srv: faultserver.New(t, opts), dir: t.TempDir(), seed: opts.Seed}
 	db, err := persistence.Open(filepath.Join(t.TempDir(), "swiftfetch.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +67,10 @@ func newHarness(t *testing.T, opts faultserver.Options, ho harnessOpts) *harness
 	cfg.ProgressHz = 20
 	if ho.cfg != nil {
 		ho.cfg(&cfg)
+	}
+	offlineBase := ho.offlineBaseDelay
+	if offlineBase == 0 {
+		offlineBase = 100 * time.Millisecond
 	}
 	dial := ho.dial
 	if dial == nil {
@@ -94,7 +103,7 @@ func newHarness(t *testing.T, opts faultserver.Options, ho harnessOpts) *harness
 				AllowHTTPSDowngrade: cfg.AllowHTTPSDowngrade, Dialer: dial,
 			})
 		},
-		OfflineBaseDelay: 100 * time.Millisecond,
+		OfflineBaseDelay: offlineBase,
 	})
 	t.Cleanup(func() {
 		sctx, scancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -109,6 +118,11 @@ func newHarness(t *testing.T, opts faultserver.Options, ho harnessOpts) *harness
 		}
 	})
 	return h
+}
+
+// expectedSHA256 is the generator's digest for this harness's seed.
+func (h *harness) expectedSHA256(size int64) [32]byte {
+	return faultserver.ExpectedSHA256(h.seed, size)
 }
 
 func (h *harness) fileURL() string { return h.srv.URL + "/file" }

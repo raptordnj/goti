@@ -245,7 +245,7 @@ func runMatrixCase(t *testing.T, tc matrixCase) {
 		if n != tc.opts.Size {
 			t.Errorf("size %d, want %d", n, tc.opts.Size)
 		}
-		match := sum == faultserver.ExpectedSHA256(seed, tc.opts.Size)
+		match := sum == h.expectedSHA256(tc.opts.Size)
 		if match == tc.corrupt {
 			t.Errorf("SHA-256 match=%v, want %v", match, !tc.corrupt)
 		}
