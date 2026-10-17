@@ -167,6 +167,11 @@ func (in *Inspector) probe2(ctx context.Context, obs *Observations, target strin
 		if p2.errText != "" {
 			obs.Anomalies = append(obs.Anomalies, "probe 2 failed: "+p2.errText)
 		}
+		if err == nil && p2.exhausted == nil && p2.errText != "" {
+			// Transport failure: range support is unknown, so the inspection
+			// fails retryably rather than settling for single-stream.
+			obs.Err = domain.NewError(p2.errKind, "probe 2 failed: "+p2.errText, "", nil)
+		}
 		return false
 	}
 	resp := p2.resp
@@ -264,11 +269,17 @@ func (in *Inspector) attempt(ctx context.Context, obs *Observations, target stri
 	p.body = -1
 	if resp.StatusCode == http.StatusPartialContent {
 		p.body, err = io.Copy(io.Discard, io.LimitReader(resp.Body, want.Len()+1))
-		if err != nil {
-			pr.Err = transport.RedactError(err).Error()
-		}
 	}
 	_ = resp.Body.Close()
+	if err != nil {
+		// The connection failed mid-body: a network failure, not evidence
+		// about range support (spec §8.1).
+		p.errText = transport.RedactError(err).Error()
+		p.errKind = transportErrorKind(err)
+		pr.Status, pr.BodyLen, pr.Err = resp.StatusCode, p.body, p.errText
+		obs.Probes = append(obs.Probes, pr)
+		return p, -1
+	}
 	p.resp = resp
 	pr.Status = resp.StatusCode
 	pr.ContentRange = resp.Header.Get("Content-Range")

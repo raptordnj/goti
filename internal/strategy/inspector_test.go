@@ -378,3 +378,20 @@ func TestInspectRedirectToPrivatePolicy(t *testing.T) {
 		t.Fatalf("obs.Err = %v, want kind policy", obs.Err)
 	}
 }
+
+// A connection lost while reading a probe body is a network failure, not
+// evidence about range support: the inspection reports it as transient so
+// the engine retries instead of downgrading to single-stream.
+func TestInspectProbe1BodyResetIsTransient(t *testing.T) {
+	obs, _ := inspect(t, faultserver.Options{Size: 20 << 20, ETag: "v1", ResetEveryNth: 1}, "/file")
+	if obs.Err == nil || obs.Err.Kind != domain.KindTransient {
+		t.Fatalf("err=%v proven=%v anomalies=%v", obs.Err, obs.RangesProven, obs.Anomalies)
+	}
+}
+
+func TestInspectProbe2ResetIsTransient(t *testing.T) {
+	obs, _ := inspect(t, faultserver.Options{Size: 20 << 20, ETag: "v1", ResetEveryNth: 2}, "/file")
+	if obs.Err == nil || obs.Err.Kind != domain.KindTransient {
+		t.Fatalf("err=%v proven=%v anomalies=%v", obs.Err, obs.RangesProven, obs.Anomalies)
+	}
+}
