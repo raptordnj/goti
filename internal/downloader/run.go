@@ -40,7 +40,7 @@ type runEnv struct {
 	onRetry   func(a domain.Attempt)                 // event + store; may be nil
 	bufPool   *sync.Pool                             // *[]byte of bufSize
 	writeAt   func(p []byte, off int64) (int, error) // defaults to file.WriteAt; tests inject faults
-	windowMin time.Duration                          //nolint:unused // controller window minimum, default 2s; used by the multipart controller
+	windowMin time.Duration                          // controller window minimum; 0 means 2s
 }
 
 // newBufPool returns a pool of bufSize byte buffers, stored as *[]byte so
