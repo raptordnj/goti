@@ -58,6 +58,10 @@ type Action struct {
 type ControllerConfig struct {
 	Initial, Max int
 	Adaptive     bool
+	// StartConservative starts with the conservative ceiling (2), as after
+	// SwitchConservative; Max is restored after stableWindowsToRecover
+	// stable windows (strategy C, spec §8).
+	StartConservative bool
 }
 
 // Controller is the pure adaptive-concurrency state machine of spec §8. It is
@@ -88,7 +92,12 @@ type Controller struct {
 func NewController(c ControllerConfig) *Controller {
 	c.Max = max(c.Max, 1)
 	c.Initial = min(max(c.Initial, 1), c.Max)
-	return &Controller{cfg: c, n: c.Initial, ceiling: c.Max}
+	ctl := &Controller{cfg: c, n: c.Initial, ceiling: c.Max}
+	if c.StartConservative {
+		ctl.conserv, ctl.ceiling = true, min(conservativeMaxConns, c.Max)
+		ctl.n = min(ctl.n, ctl.ceiling)
+	}
+	return ctl
 }
 
 // Current returns the connection count the controller wants.
@@ -176,7 +185,7 @@ func (c *Controller) throttle(s Sample) Action {
 	c.haveEWMA = false
 	c.cooldown = cooldownAfterThrottle
 	c.manualDrops = !c.cfg.Adaptive && c.n < c.cfg.Initial
-	return Action{Kind: Backoff, Target: c.n, Delay: min(s.RetryAfter, maxRetryAfter)}
+	return Action{Kind: Backoff, Target: c.n, Delay: min(max(s.RetryAfter, 0), maxRetryAfter)}
 }
 
 // observeManual holds at Initial, restoring it once a throttle cooldown ends.

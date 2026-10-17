@@ -48,12 +48,22 @@ func TestSimPerConnectionCappedClimbs(t *testing.T) {
 
 func TestSimBandwidthCappedHoldsLow(t *testing.T) {
 	trace := run(link{perConn: 10e6, total: 5e6}, 200)
-	low := 0
-	for _, n := range trace {
+	low, excursion := 0, 0
+	for i, n := range trace {
 		if n <= 2 {
 			low++
+			excursion = 0
+			continue
+		}
+		excursion++
+		if n > 3 || excursion > probeWindows {
+			t.Fatalf("window %d: Current %d, excursion %d windows (want <= 3 conns, <= %d windows) trace %v",
+				i, n, excursion, probeWindows, trace)
 		}
 	}
+	// With the spec §8 constants the steady state is exactly 80%: each
+	// 10-window cycle is 2 probe windows at 3 conns, 6 cooldown windows and 2
+	// stable windows at 2. The structural check above is what keeps it robust.
 	if low*100 < 80*len(trace) {
 		t.Fatalf("Current <= 2 in %d/%d windows, want >= 80%% (trace %v)", low, len(trace), trace)
 	}

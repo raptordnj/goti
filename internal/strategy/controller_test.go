@@ -189,3 +189,30 @@ func TestEWMA(t *testing.T) {
 		t.Fatalf("EWMA = %v, want %v", got, want)
 	}
 }
+
+func TestStartConservativeRecovers(t *testing.T) {
+	c := NewController(ControllerConfig{Initial: 1, Max: 8, Adaptive: true, StartConservative: true})
+	for i := range stableWindowsToRecover {
+		c.Observe(good(c.Current(), 1e6*float64(i+1)))
+		if c.Current() > 2 {
+			t.Fatalf("window %d: Current %d > 2 before recovery", i, c.Current())
+		}
+	}
+	rate := 1e7
+	for range 20 {
+		rate *= 1.5
+		c.Observe(good(c.Current(), rate))
+	}
+	if c.Current() <= 2 {
+		t.Fatalf("never recovered above 2: Current %d", c.Current())
+	}
+}
+
+func TestNegativeRetryAfterClamped(t *testing.T) {
+	c := adaptive(4, 8)
+	s := good(4, 1e6)
+	s.Throttled, s.RetryAfter = 1, -time.Second
+	if a := c.Observe(s); a.Delay != 0 {
+		t.Fatalf("Delay = %s, want 0", a.Delay)
+	}
+}

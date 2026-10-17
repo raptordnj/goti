@@ -108,7 +108,11 @@ func Select(obs Observations, cfg config.Config, resume *ResumeState) Decision {
 	if resume != nil && !d.RemoteChanged {
 		switch {
 		case !obs.RangesProven:
-			d.Reasons = append(d.Reasons, "ranges no longer proven: stored progress cannot be resumed, restarting")
+			d.RemoteChanged = true
+			d.Err = domain.NewError(domain.KindRemoteChanged,
+				"server no longer honours ranges; cannot resume verified progress",
+				"restart the download from zero", nil)
+			d.Reasons = append(d.Reasons, "server no longer honours ranges: cannot resume verified progress")
 		case resume.Previous == domain.StrategySingle:
 			d.Resume = true
 			d.Strategy = domain.StrategySingle
