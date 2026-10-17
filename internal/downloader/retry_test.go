@@ -230,4 +230,61 @@ func TestOfflineWaiter(t *testing.T) {
 			t.Fatalf("got %v", err)
 		}
 	})
+
+	t.Run("custom base and cap sequence", func(t *testing.T) {
+		for _, c := range []struct {
+			base time.Duration
+			want []time.Duration
+		}{
+			{100 * time.Millisecond, []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond}},
+			{0, []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 60 * time.Second, 60 * time.Second}},
+		} {
+			clk := clocktest.New(time.Unix(0, 0))
+			var mu sync.Mutex
+			var got []time.Duration
+			w := &OfflineWaiter{Clock: clk, Base: c.base, Check: func(context.Context) error { return errors.New("down") }}
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() {
+				done <- w.Wait(ctx, func(_ int, n time.Duration) { mu.Lock(); got = append(got, n); mu.Unlock() })
+			}()
+			for _, d := range c.want {
+				waitWaiters(t, clk)
+				clk.Advance(d)
+				time.Sleep(time.Millisecond)
+			}
+			waitWaiters(t, clk)
+			cancel()
+			_ = <-done
+			mu.Lock()
+			if fmt.Sprint(got[:len(c.want)]) != fmt.Sprint(c.want) {
+				t.Errorf("base %v: got %v want %v", c.base, got, c.want)
+			}
+			mu.Unlock()
+		}
+	})
+	t.Run("sleep clamped to remaining limit", func(t *testing.T) {
+		clk := clocktest.New(time.Unix(0, 0))
+		start := clk.Now()
+		w := &OfflineWaiter{Clock: clk, Limit: 50 * time.Second, Check: func(context.Context) error { return errors.New("down") }}
+		done := make(chan error, 1)
+		go func() { done <- w.Wait(context.Background(), nil) }()
+		for {
+			select {
+			case err := <-done:
+				if domain.KindOf(err) != domain.KindOffline {
+					t.Fatalf("got %v", err)
+				}
+				if el := clk.Now().Sub(start); el != 50*time.Second {
+					t.Fatalf("elapsed %v, want exactly 50s", el)
+				}
+				return
+			default:
+			}
+			if clk.Waiters() > 0 {
+				clk.Advance(time.Second)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	})
 }

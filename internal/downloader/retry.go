@@ -20,7 +20,10 @@ const maxRetryAfter = 10 * time.Minute
 type Backoff struct {
 	Base, Max time.Duration
 	Factor    float64
-	Rand      *rand.Rand // seeded in tests; nil uses the global generator
+	// Rand is seeded in tests; nil uses the goroutine-safe global generator.
+	// A non-nil *rand.Rand is NOT goroutine-safe: callers sharing a Backoff
+	// across workers must leave it nil or guard it themselves.
+	Rand *rand.Rand
 }
 
 func (b Backoff) int64n(n int64) int64 {
@@ -51,7 +54,8 @@ func (b Backoff) Delay(attempt int, retryAfter time.Duration) time.Duration {
 
 // Classify maps err to an ErrorKind. Explicit *domain.Error values and context
 // cancellation win; otherwise syscall, net and x509 causes are inspected
-// through any wrapping. Unknown errors are transient.
+// through any wrapping. Unknown errors, and nil, are transient; callers should
+// not pass nil.
 func Classify(err error) domain.ErrorKind {
 	var de *domain.Error
 	if errors.As(err, &de) {
@@ -130,12 +134,14 @@ func (b *Budget) Progress() {
 type OfflineWaiter struct {
 	Clock domain.Clock
 	Limit time.Duration // 0 waits forever
+	Base  time.Duration // first check interval; 0 means 5s
+	Max   time.Duration // interval cap; 0 means 60s
 	Check func(ctx context.Context) error
 }
 
 const (
-	offlineStart = 5 * time.Second
-	offlineMax   = 60 * time.Second
+	defaultOfflineBase = 5 * time.Second
+	defaultOfflineMax  = 60 * time.Second
 )
 
 // Wait runs Check until it succeeds (nil), ctx ends (ctx error), or Limit of
@@ -143,7 +149,13 @@ const (
 // each failed check with the attempt number and the delay before the next one.
 func (w *OfflineWaiter) Wait(ctx context.Context, onCheck func(attempt int, next time.Duration)) error {
 	start := w.Clock.Now()
-	next := offlineStart
+	next, maxDelay := w.Base, w.Max
+	if next <= 0 {
+		next = defaultOfflineBase
+	}
+	if maxDelay <= 0 {
+		maxDelay = defaultOfflineMax
+	}
 	for attempt := 0; ; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -155,16 +167,21 @@ func (w *OfflineWaiter) Wait(ctx context.Context, onCheck func(attempt int, next
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if w.Limit > 0 && w.Clock.Now().Sub(start) >= w.Limit {
-			return domain.NewError(domain.KindOffline, "network unavailable",
-				"network unavailable — resume when connected", cerr)
+		sleep := next
+		if w.Limit > 0 {
+			remaining := w.Limit - w.Clock.Now().Sub(start)
+			if remaining <= 0 {
+				return domain.NewError(domain.KindOffline, "network unavailable",
+					"network unavailable — resume when connected", cerr)
+			}
+			sleep = min(sleep, remaining)
 		}
 		if onCheck != nil {
-			onCheck(attempt, next)
+			onCheck(attempt, sleep)
 		}
-		if err := w.Clock.Sleep(ctx, next); err != nil {
+		if err := w.Clock.Sleep(ctx, sleep); err != nil {
 			return err
 		}
-		next = min(next*2, offlineMax)
+		next = min(next*2, maxDelay)
 	}
 }
