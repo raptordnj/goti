@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"io/fs"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -915,5 +916,34 @@ func TestRunRangeProbesAlwaysInterruptedFallsBackToSingle(t *testing.T) {
 	}
 	if atts, _ := f.store.ListAttempts(context.Background(), task.ID); len(atts) != 2 {
 		t.Fatalf("%d attempts, want 2 interrupted inspections retried", len(atts))
+	}
+}
+
+// TestRunGuardAcrossEngines: a second Engine on the same DataDir (standing in
+// for a second CLI process) cannot run or remove a task the first is running.
+func TestRunGuardAcrossEngines(t *testing.T) {
+	const size = 4 << 20
+	f := newEngFixture(t, faultserver.Options{Size: size, BytesPerSecondGlobal: 2 << 20}, nil)
+	other := NewEngine(f.e.d)
+	task := f.add(t, AddRequest{})
+	ch := f.startRun(task.ID)
+	waitFor(t, 20*time.Second, "progress", func() bool { return f.downloaded(task.ID) > 0 })
+
+	ctx := context.Background()
+	de := wantKind(t, other.Run(ctx, task.ID), domain.KindLocal)
+	if !strings.Contains(de.Msg, "another process") {
+		t.Fatalf("message %q", de.Msg)
+	}
+	_ = wantKind(t, other.Remove(ctx, task.ID, true), domain.KindLocal)
+	_ = wantKind(t, other.Cancel(ctx, task.ID), domain.KindLocal)
+	if err := recvErr(t, ch); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	// Released once the first run ends.
+	if err := other.Remove(ctx, task.ID, false); err != nil {
+		t.Fatalf("remove after run: %v", err)
+	}
+	if _, err := os.Stat(other.lockPath(task.ID)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("lock file not removed with the task: %v", err)
 	}
 }

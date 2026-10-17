@@ -99,6 +99,9 @@ func (s taskSettings) apply(cfg config.Config) config.Config {
 type runHandle struct {
 	cancel context.CancelCauseFunc
 	done   chan struct{}
+	lock   *storage.FileLock // cross-process guard; nil without a DataDir
+	// dropLock removes the lock file on release (the task was removed).
+	dropLock bool
 }
 
 // Engine runs download tasks. It is safe for concurrent use.
@@ -256,9 +259,39 @@ func (e *Engine) acquire(id string, cancel context.CancelCauseFunc) (*runHandle,
 	if _, ok := e.running[id]; ok {
 		return nil, ErrAlreadyRunning
 	}
-	h := &runHandle{cancel: cancel, done: make(chan struct{})}
+	lock, err := e.lockTask(id)
+	if err != nil {
+		return nil, err
+	}
+	h := &runHandle{cancel: cancel, done: make(chan struct{}), lock: lock}
 	e.running[id] = h
 	return h, nil
+}
+
+// lockTask takes the cross-process lock of task id in DataDir, so a second
+// process cannot drive or remove a task this one holds. Without a DataDir
+// only the in-process guard applies.
+func (e *Engine) lockTask(id string) (*storage.FileLock, error) {
+	if e.d.Config.DataDir == "" {
+		return nil, nil
+	}
+	dir := filepath.Join(e.d.Config.DataDir, "locks")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, domain.NewError(domain.KindLocal, "create lock directory: "+err.Error(), "check permissions of "+dir, err)
+	}
+	lock, err := storage.TryLock(e.lockPath(id))
+	if errors.Is(err, storage.ErrLocked) {
+		return nil, domain.NewError(domain.KindLocal, "task is running in another process",
+			"wait for it to finish or stop it there", err)
+	}
+	if err != nil {
+		return nil, domain.NewError(domain.KindLocal, "lock task: "+err.Error(), "check permissions of "+dir, err)
+	}
+	return lock, nil
+}
+
+func (e *Engine) lockPath(id string) string {
+	return filepath.Join(e.d.Config.DataDir, "locks", id+".lock")
 }
 
 func (e *Engine) release(id string, h *runHandle) {
@@ -267,6 +300,14 @@ func (e *Engine) release(id string, h *runHandle) {
 		delete(e.running, id)
 	}
 	e.mu.Unlock()
+	if h.lock != nil {
+		if err := h.lock.Unlock(); err != nil {
+			e.d.Logger.Warn("unlock task", "task", id, "err", err)
+		}
+		if h.dropLock {
+			_ = os.Remove(e.lockPath(id))
+		}
+	}
 	close(h.done)
 }
 
@@ -372,20 +413,21 @@ func (e *Engine) cancelIdle(ctx context.Context, id string) error {
 // the temp file of an unfinished task is deleted; a completed download is
 // never deleted.
 func (e *Engine) Remove(ctx context.Context, id string, deletePartial bool) error {
-	for {
+	var h *runHandle
+	for h == nil {
 		if _, err := e.stopRunning(ctx, id, domain.ErrCancelled); err != nil {
 			return err
 		}
-		h, err := e.acquire(id, nil)
+		var err error
+		h, err = e.acquire(id, nil)
 		if errors.Is(err, ErrAlreadyRunning) {
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		defer e.release(id, h)
-		break
 	}
+	defer e.release(id, h)
 	t, err := e.d.Store.GetTask(ctx, id)
 	if err != nil {
 		return err
@@ -398,6 +440,7 @@ func (e *Engine) Remove(ctx context.Context, id string, deletePartial bool) erro
 	if err := e.d.Store.DeleteTask(ctx, id); err != nil {
 		return err
 	}
+	h.dropLock = true
 	e.d.Logger.Info("task removed", "task", id, "deletePartial", deletePartial)
 	return nil
 }
