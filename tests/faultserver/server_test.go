@@ -719,3 +719,29 @@ func TestNoGoroutineLeak(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// TestDropPerResponse: with DropPerResponse the drop is rolled once per
+// response, so a 4 MiB body (256 pieces) still completes in most responses
+// at p=0.2, and the same seed drops the same requests.
+func TestDropPerResponse(t *testing.T) {
+	const size = 4 << 20
+	pattern := func() []int {
+		s := New(t, Options{Size: size, Seed: 9, DropProbability: 0.2, DropPerResponse: true})
+		c := newClient(t)
+		var dropped []int
+		for i := range 30 {
+			b, err := io.ReadAll(do(t, c, s.URL+"/file", nil).Body)
+			if err != nil || len(b) < size {
+				dropped = append(dropped, i)
+			}
+		}
+		return dropped
+	}
+	a, b := pattern(), pattern()
+	if len(a) == 0 || len(a) > 15 {
+		t.Fatalf("dropped %v of 30, want some but well under half", a)
+	}
+	if !slices.Equal(a, b) {
+		t.Fatalf("same seed dropped different requests: %v vs %v", a, b)
+	}
+}

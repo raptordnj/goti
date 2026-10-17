@@ -76,6 +76,7 @@ type Options struct {
 	CloseAfterBytes     int64   // close the connection (FIN) after this many body bytes
 	RangeIgnoredAfter   int     // after K requests, Range is ignored (200)
 	DropProbability     float64 // probability per piece of aborting the connection (RNG seeded from Seed and the request number)
+	DropPerResponse     bool    // roll DropProbability once per response instead; a hit aborts (RST) at a pseudo-random body offset from the same RNG
 	BlackholeAfterBytes int64   // stop writing after this many body bytes and hang until the client goes away
 	BlackholeOnNth      int     // apply the blackhole only to the Nth request
 
@@ -495,12 +496,16 @@ func (s *Server) writeBody(ctx context.Context, w http.ResponseWriter, o *Option
 	}
 	cut((o.ResetAfterBytes > 0 || o.ResetEveryNth > 0) && (o.ResetEveryNth <= 0 || fn%o.ResetEveryNth == 0), o.ResetAfterBytes, endReset)
 	cut(o.CloseAfterBytes > 0, o.CloseAfterBytes, endClose)
-	cut((o.BlackholeAfterBytes > 0 || o.BlackholeOnNth > 0) && (o.BlackholeOnNth <= 0 || fn == o.BlackholeOnNth), o.BlackholeAfterBytes, endBlackhole)
-
 	// Drops and jitter come from a per-response RNG keyed by (Seed, request
 	// number), so a seed reproduces the same per-request pattern regardless of
 	// how concurrent requests are scheduled.
 	rng := rand.New(rand.NewPCG(o.Seed, uint64(fn))) //nolint:gosec // deterministic fault injection; fn is positive
+	perPiece := o.DropProbability > 0 && !o.DropPerResponse
+	if o.DropPerResponse && o.DropProbability > 0 && stop > 0 && rng.Float64() < o.DropProbability {
+		cut(true, rng.Int64N(stop), endReset)
+	}
+	cut((o.BlackholeAfterBytes > 0 || o.BlackholeOnNth > 0) && (o.BlackholeOnNth <= 0 || fn == o.BlackholeOnNth), o.BlackholeAfterBytes, endBlackhole)
+
 	piece := writePiece(o)
 	buf := make([]byte, min(int64(piece), max(stop, 0)))
 	var perConn *rate.Limiter
@@ -511,7 +516,7 @@ func (s *Server) writeBody(ctx context.Context, w http.ResponseWriter, o *Option
 		return
 	}
 	for written := int64(0); written < stop; {
-		if o.DropProbability > 0 && rng.Float64() < o.DropProbability {
+		if perPiece && rng.Float64() < o.DropProbability {
 			abort(rc, true)
 			return
 		}
