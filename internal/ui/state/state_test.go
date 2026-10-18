@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -324,5 +325,56 @@ func TestStateCoalesces(t *testing.T) {
 	}
 	if st.Load().Settings.MaxSimultaneous != 3 {
 		t.Fatal("settings not in snapshot")
+	}
+}
+
+func TestCompletedAfterProgressShowsFull(t *testing.T) {
+	m := newModel(task("a", domain.StateDownloading, 0))
+	apply(m, events.Progress{ID: "a", Downloaded: 990, Total: 1000, TotalKnown: true}, t0)
+	apply(m, events.StateChanged{ID: "a", From: domain.StateVerifying, To: domain.StateCompleted}, t0)
+	c := task("a", domain.StateCompleted, 0)
+	c.Downloaded = 1000
+	m.setTask(c, nil) // reload after StateChanged
+	if v := find(build(m, t0), "a"); v.Percent != 100 || v.Downloaded != 1000 {
+		t.Fatalf("%+v", v)
+	}
+	// Even if the DB row lags, Completed shows Downloaded = Size.
+	m2 := newModel(task("b", domain.StateDownloading, 0))
+	apply(m2, events.Progress{ID: "b", Downloaded: 990, Total: 1000, TotalKnown: true}, t0)
+	apply(m2, events.StateChanged{ID: "b", From: domain.StateVerifying, To: domain.StateCompleted}, t0)
+	if v := find(build(m2, t0), "b"); v.Percent != 100 || v.Downloaded != 1000 {
+		t.Fatalf("%+v", v)
+	}
+}
+
+func TestPausedUsesDBDownloaded(t *testing.T) {
+	m := newModel(task("a", domain.StateDownloading, 0))
+	apply(m, events.Progress{ID: "a", Downloaded: 700, Total: 1000, TotalKnown: true}, t0)
+	apply(m, events.StateChanged{ID: "a", From: domain.StateDownloading, To: domain.StatePaused}, t0)
+	p := task("a", domain.StatePaused, 0)
+	p.Downloaded = 640
+	m.setTask(p, nil)
+	if v := find(build(m, t0), "a"); v.Downloaded != 640 || v.Percent != 64 {
+		t.Fatalf("%+v", v)
+	}
+	// Resync also drops live numbers in favour of the DB.
+	apply(m, events.StateChanged{ID: "a", From: domain.StateQueued, To: domain.StateDownloading}, t0)
+	apply(m, events.Progress{ID: "a", Downloaded: 900, Total: 1000, TotalKnown: true}, t0)
+	apply(m, events.Resync{}, t0)
+	p.Downloaded, p.State = 880, domain.StateDownloading
+	m.setTask(p, nil)
+	if v := find(build(m, t0), "a"); v.Downloaded != 880 {
+		t.Fatalf("after resync %+v", v)
+	}
+}
+
+func TestToastRedactsCredentials(t *testing.T) {
+	m := newModel()
+	apply(m, events.CommandResult{Cmd: "AddDownload", Err: fmt.Errorf("fetch https://bob:hunter2@example.com/f?token=abc failed")}, t0)
+	apply(m, events.CommandResult{Cmd: "AddDownload", Err: &url.Error{Op: "Get", URL: "https://bob:hunter2@example.com/x", Err: errors.New("eof")}}, t0)
+	for _, ts := range build(m, t0).Toasts {
+		if strings.Contains(ts.Text, "hunter2") || strings.Contains(ts.Text, "abc") {
+			t.Fatalf("leaked: %q", ts.Text)
+		}
 	}
 }

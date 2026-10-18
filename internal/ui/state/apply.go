@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -102,6 +103,10 @@ func apply(m *model, ev events.Event, now time.Time) result {
 		if e.To != domain.StateDownloading {
 			en.speed, en.eta, en.conns = 0, nil, 0
 		}
+		if !liveState(e.To) {
+			// Not transferring: the DB row (reloaded next) is authoritative.
+			en.progress = false
+		}
 		return result{reload: e.ID, dirty: true}
 	case events.Progress:
 		en, ok := m.tasks[e.ID]
@@ -132,19 +137,22 @@ func apply(m *model, ev events.Event, now time.Time) result {
 		}
 	case events.Warning:
 		if e.Msg != "" {
-			m.addToast(Toast{Kind: ToastInfo, Text: e.Msg, At: now})
+			m.addToast(Toast{Kind: ToastInfo, Text: redactText(e.Msg), At: now})
 			return result{dirty: true}
 		}
 	case events.CommandResult:
 		r := result{reload: e.ID, dirty: true}
 		switch {
 		case e.Err != nil:
-			m.addToast(Toast{Kind: ToastError, Text: e.Err.Error(), At: now})
+			m.addToast(Toast{Kind: ToastError, Text: redactText(transport.RedactError(e.Err).Error()), At: now})
 		case e.Cmd == "AddDownload":
 			m.addToast(Toast{Kind: ToastSuccess, Text: "Download added", At: now})
 		}
 		return r
 	case events.Resync:
+		for _, en := range m.tasks {
+			en.progress = false
+		}
 		return result{full: true, dirty: true}
 	}
 	return result{}
@@ -215,13 +223,16 @@ func view(e *entry, interrupted bool) TaskView {
 	if t.State == domain.StateDownloading && !interrupted {
 		v.SpeedBps, v.ETA, v.Conns = e.speed, e.eta, e.conns
 	}
+	if t.State == domain.StateCompleted && v.TotalKnown && v.Total > 0 {
+		v.Downloaded = v.Total
+	}
 	if v.TotalKnown && v.Total > 0 {
 		v.Percent = math.Min(100, float64(v.Downloaded)*100/float64(v.Total))
 	} else if v.TotalKnown && t.State == domain.StateCompleted {
 		v.Percent = 100
 	}
 	if t.State == domain.StateFailed && t.LastErrorMsg != "" {
-		v.LastError = t.LastErrorMsg
+		v.LastError = redactText(t.LastErrorMsg)
 		v.LastErrorAction = errorAction(t.LastErrorKind)
 	}
 	a := actionsFor(t.State, interrupted, t.LastErrorKind)
@@ -370,4 +381,15 @@ func reloadOne(ctx context.Context, m *model, st TaskStore, id string) error {
 	}
 	m.setTask(t, att)
 	return nil
+}
+
+func liveState(s domain.State) bool {
+	return s == domain.StateInspecting || s == domain.StateDownloading || s == domain.StateRetrying
+}
+
+var urlRe = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"'<>]+`)
+
+// redactText replaces every URL in s with its redacted form.
+func redactText(s string) string {
+	return urlRe.ReplaceAllStringFunc(s, transport.Redact)
 }
