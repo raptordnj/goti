@@ -5,13 +5,13 @@ import (
 	"image/color"
 	"path/filepath"
 	"strings"
-
 	"time"
 
 	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/widget"
 
+	"github.com/raptordnj/swiftfetch/internal/domain"
 	"github.com/raptordnj/swiftfetch/internal/platform"
 	"github.com/raptordnj/swiftfetch/internal/ui/state"
 	"github.com/raptordnj/swiftfetch/internal/ui/theme"
@@ -19,10 +19,11 @@ import (
 
 // RowWidgets is the per-row widget state. Shown records the action buttons
 // laid out in the most recent frame (names: pause, resume, cancel, retry,
-// restart, open, menu).
+// restart, open, menu); ShownName is the (ellipsized) file name drawn.
 type RowWidgets struct {
 	Pause, Resume, Cancel, Retry, Restart, Open, Menu, Select widget.Clickable
 	Shown                                                     []string
+	ShownName                                                 string
 }
 
 // fileGlyph returns a short type badge for name.
@@ -59,12 +60,12 @@ func rowMeta(v state.TaskView) string {
 	if v.ETA != nil {
 		parts = append(parts, platform.FormatETA(*v.ETA))
 	}
-	return strings.Join(parts, " · ")
+	return strings.Join(parts, metaSep)
 }
 
 func statusColor(th *theme.Theme, v state.TaskView) color.NRGBA {
 	switch {
-	case v.LastError != "" && !v.CanPause && v.CanRetry:
+	case v.State == domain.StateFailed:
 		return th.Error
 	case v.CanOpen:
 		return th.Success
@@ -109,7 +110,8 @@ func rowBody(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidget
 				})),
 				layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					l := label(th, theme.TextMd, th.Text, platform.MiddleEllipsis(v.FileName, 60))
+					w.ShownName = fitName(v.FileName, runeBudget(gtx, gtx.Constraints.Max.X))
+					l := label(th, theme.TextMd, th.Text, w.ShownName)
 					l.Font.Weight = font.Medium
 					return l.Layout(gtx)
 				}),
@@ -126,27 +128,60 @@ func rowBody(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidget
 }
 
 func rowButtons(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidgets) layout.Dimensions {
-	type btn struct {
-		name, glyph, desc string
-		ok                bool
-		c                 *widget.Clickable
-	}
-	btns := []btn{
-		{"pause", "Pause", "Pause download", v.CanPause, &w.Pause},
-		{"resume", "Resume", "Resume download", v.CanResume, &w.Resume},
-		{"retry", "Retry", "Retry download", v.CanRetry, &w.Retry},
-		{"restart", "Restart", "Restart download", v.CanRestart, &w.Restart},
-		{"open", "Open", "Open file", v.CanOpen, &w.Open},
-		{"cancel", "Cancel", "Cancel download", v.CanCancel, &w.Cancel},
-		{"menu", "⋯", "More actions", true, &w.Menu},
-	}
+	ok := map[string]bool{"pause": v.CanPause, "resume": v.CanResume, "retry": v.CanRetry,
+		"restart": v.CanRestart, "open": v.CanOpen, "cancel": v.CanCancel, "menu": true}
 	var children []layout.FlexChild
-	for _, b := range btns {
-		if !b.ok {
+	for _, b := range rowButtonSpecs(w) {
+		if !ok[b.name] {
 			continue
 		}
 		w.Shown = append(w.Shown, b.name)
 		children = append(children, layout.Rigid(IconButton(th, b.c, b.glyph, b.desc)))
 	}
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx, children...)
+}
+
+type rowButton struct {
+	name, glyph, desc string
+	c                 *widget.Clickable
+}
+
+func rowButtonSpecs(w *RowWidgets) []rowButton {
+	return []rowButton{
+		{"pause", "Pause", "Pause download", &w.Pause},
+		{"resume", "Resume", "Resume download", &w.Resume},
+		{"retry", "Retry", "Retry download", &w.Retry},
+		{"restart", "Restart", "Restart download", &w.Restart},
+		{"open", "Open", "Open file", &w.Open},
+		{"cancel", "Cancel", "Cancel download", &w.Cancel},
+		{"menu", glyphMenu, "More actions", &w.Menu},
+	}
+}
+
+// runeBudget conservatively estimates how many TextMd runes fit in px
+// (average Go font advance is about 0.55em; 0.6em leaves headroom).
+func runeBudget(gtx layout.Context, px int) int {
+	per := float32(gtx.Sp(theme.TextMd)) * 0.6
+	if per <= 0 {
+		return 8
+	}
+	return max(8, int(float32(px)/per))
+}
+
+// fitName middle-ellipsizes name to n runes, always keeping its extension
+// (including compound ones such as .tar.gz) visible.
+func fitName(name string, n int) string {
+	r := []rune(name)
+	if len(r) <= n {
+		return name
+	}
+	ext := filepath.Ext(name)
+	if stem := strings.TrimSuffix(name, ext); strings.EqualFold(filepath.Ext(stem), ".tar") {
+		ext = filepath.Ext(stem) + ext
+	}
+	er := len([]rune(ext))
+	if ext == "" || er > 12 || n-er < 4 {
+		return platform.MiddleEllipsis(name, n)
+	}
+	return platform.MiddleEllipsis(strings.TrimSuffix(name, ext), n-er) + ext
 }

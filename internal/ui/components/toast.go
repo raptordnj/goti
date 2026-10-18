@@ -52,7 +52,7 @@ func toast(gtx layout.Context, th *theme.Theme, t state.Toast, btn *widget.Click
 						if btn == nil {
 							return layout.Dimensions{}
 						}
-						return IconButton(th, btn, "✕", "Dismiss")(gtx)
+						return IconButton(th, btn, glyphDismiss, "Dismiss")(gtx)
 					}),
 				)
 			})

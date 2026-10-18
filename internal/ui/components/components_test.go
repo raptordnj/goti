@@ -3,6 +3,7 @@ package components
 import (
 	"image"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,10 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 	"gioui.org/widget"
+	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/gofont/gomedium"
+	"golang.org/x/image/font/gofont/goregular"
+	"golang.org/x/image/font/sfnt"
 
 	"github.com/raptordnj/swiftfetch/internal/domain"
 	"github.com/raptordnj/swiftfetch/internal/ui/state"
@@ -109,5 +114,35 @@ func TestTaskRowButtonsMatchCan(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s interrupted=%v: shown %v want %v", v.State, v.Interrupted, got, want)
 		}
+	}
+}
+
+func TestGlyphsCovered(t *testing.T) {
+	var buf sfnt.Buffer
+	for _, ttf := range [][]byte{goregular.TTF, gomedium.TTF, gobold.TTF} {
+		f, err := sfnt.Parse(ttf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range usedGlyphs() {
+			for _, r := range s {
+				if g, _ := f.GlyphIndex(&buf, r); g == 0 {
+					t.Errorf("glyph %q (in %q) missing from Go fonts", r, s)
+				}
+			}
+		}
+	}
+}
+
+func TestTaskRowNameFitsWidth(t *testing.T) {
+	th := theme.New(theme.Light())
+	v := fixtures()[0]
+	v.FileName = "an-extremely-long-archive-name-that-will-never-fit-in-a-narrow-row-1.2.3.tar.gz"
+	var w RowWidgets
+	gtx := newGtx()
+	gtx.Constraints = layout.Exact(image.Pt(300, 600))
+	TaskRow(th, v, &w, time.Unix(1000, 0))(gtx)
+	if !strings.HasSuffix(w.ShownName, ".tar.gz") || len([]rune(w.ShownName)) >= len([]rune(v.FileName)) {
+		t.Fatalf("ShownName = %q", w.ShownName)
 	}
 }
