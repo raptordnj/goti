@@ -2,9 +2,11 @@ package screens
 
 import (
 	"image/color"
+	"strings"
 	"sync"
 
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/unit"
 	"gioui.org/widget/material"
 
@@ -97,5 +99,26 @@ func Column(gap unit.Dp, ws ...layout.Widget) layout.Widget {
 			ch = append(ch, layout.Rigid(w))
 		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ch...)
+	}
+}
+
+// slot is a single-line label at least as wide as s with every digit
+// replaced by "0", so changing numbers do not shift what follows.
+func slot(th *theme.Theme, size unit.Sp, c color.NRGBA, s string) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		record(s)
+		zero := strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return '0'
+			}
+			return r
+		}, s)
+		m := op.Record(gtx.Ops)
+		mg := gtx
+		mg.Constraints = layout.Constraints{Max: gtx.Constraints.Max}
+		zw := labelStyle(th, size, c, zero).Layout(mg).Size.X
+		m.Stop()
+		gtx.Constraints.Min.X = min(max(gtx.Constraints.Min.X, zw), gtx.Constraints.Max.X)
+		return labelStyle(th, size, c, s).Layout(gtx)
 	}
 }

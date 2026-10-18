@@ -7,7 +7,10 @@ import (
 	"time"
 
 	"gioui.org/font"
+	"gioui.org/io/event"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
@@ -17,6 +20,7 @@ import (
 	"github.com/raptordnj/goti/internal/brand"
 	"github.com/raptordnj/goti/internal/platform"
 	"github.com/raptordnj/goti/internal/ui/components"
+	"github.com/raptordnj/goti/internal/ui/icons"
 	"github.com/raptordnj/goti/internal/ui/state"
 	"github.com/raptordnj/goti/internal/ui/theme"
 )
@@ -25,7 +29,10 @@ import (
 const Breakpoint unit.Dp = 1000
 
 // detailsPaneWidth is the width of the details pane in wide layouts.
-const detailsPaneWidth unit.Dp = 380
+const detailsPaneWidth unit.Dp = 340
+
+// headerHeight is the main header's height.
+const headerHeight unit.Dp = 52
 
 // DetailsMode is how the details panel was laid out in the last frame.
 type DetailsMode int
@@ -51,17 +58,24 @@ type Main struct {
 	// ShownTasks lists the task rows laid out last frame (collapsed
 	// sections omit theirs).
 	ShownTasks []string
+	// EmptyBounds is the window rect of the empty-state stack last frame.
+	EmptyBounds image.Rectangle
+	// PillShown reports whether the aggregate pill was drawn last frame.
+	PillShown bool
+	// HeaderHeight is the header's height in px last frame.
+	HeaderHeight int
 
-	add, pauseAll, settings widget.Clickable
-	list                    widget.List
-	rows                    map[string]*components.RowWidgets
-	menuFor                 string // task whose overflow menu is open
-	collapsed               [state.NumSections]widget.Bool
-	listTop                 int   // window y of the task list (px)
-	itemH                   []int // heights of list items laid out last frame
-	details                 Details
-	dismiss                 []widget.Clickable
-	toastFades              components.ToastFades
+	add, emptyAdd, pauseAll, settings widget.Clickable
+	scrim, sheetTag                   int // pointer tags: sheet scrim, sheet body
+	list                              widget.List
+	rows                              map[string]*components.RowWidgets
+	menuFor                           string // task whose overflow menu is open
+	collapsed                         [state.NumSections]widget.Bool
+	listTop                           int   // window y of the task list (px)
+	itemH                             []int // heights of list items laid out last frame
+	details                           Details
+	dismiss                           []widget.Clickable
+	toastFades                        components.ToastFades
 }
 
 // Row returns the widget state of task id, creating it if needed.
@@ -125,6 +139,7 @@ func (m *Main) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot,
 	m.ShownSections = m.ShownSections[:0]
 	m.ShownTasks = m.ShownTasks[:0]
 	m.listTop = -1
+	m.EmptyBounds = image.Rectangle{}
 	top := 0
 	layout.Stack{Alignment: layout.SE}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
@@ -146,6 +161,12 @@ func (m *Main) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot,
 					return m.body(gtx, th, snap, now, emit, top)
 				}),
 			)
+		}),
+		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+			if len(snap.Tasks) == 0 {
+				m.EmptyBounds = layoutEmpty(gtx, th, &m.emptyAdd)
+			}
+			return layout.Dimensions{Size: gtx.Constraints.Max} // full size: the stack aligns SE
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			if len(m.dismiss) < len(snap.Toasts) {
@@ -244,25 +265,77 @@ func (m *Main) selectedView(snap *state.Snapshot) *state.TaskView {
 }
 
 func (m *Main) body(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time, emit func(Intent), top int) layout.Dimensions {
-	switch m.DetailsMode {
-	case DetailsSheet:
+	details := func(gtx layout.Context) layout.Dimensions {
 		for _, i := range m.details.Layout(gtx, th, snap, now) {
 			m.handleDetails(i, emit)
 		}
 		return layout.Dimensions{Size: gtx.Constraints.Max}
+	}
+	switch m.DetailsMode {
+	case DetailsSheet:
+		return layout.Stack{}.Layout(gtx,
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions { return m.taskList(gtx, th, snap, now, top) }),
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions { return m.sheet(gtx, th, emit, details) }),
+		)
 	case DetailsPane:
 		return layout.Flex{}.Layout(gtx,
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return m.taskList(gtx, th, snap, now, top) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints = layout.Exact(image.Pt(gtx.Dp(detailsPaneWidth), gtx.Constraints.Max.Y))
-				for _, i := range m.details.Layout(gtx, th, snap, now) {
-					m.handleDetails(i, emit)
-				}
-				return layout.Dimensions{Size: gtx.Constraints.Max}
+				sz := image.Pt(gtx.Dp(detailsPaneWidth), gtx.Constraints.Max.Y)
+				gtx.Constraints = layout.Exact(sz)
+				return components.Raised(gtx, th, 0, func(gtx layout.Context) layout.Dimensions {
+					paint.FillShape(gtx.Ops, th.Surface, clip.Rect{Max: sz}.Op())
+					paint.FillShape(gtx.Ops, th.Hairline, clip.Rect{Max: image.Pt(max(1, gtx.Dp(1)), sz.Y)}.Op())
+					return details(gtx)
+				})
 			}),
 		)
 	}
 	return m.taskList(gtx, th, snap, now, top)
+}
+
+// sheetFrac is the share of the body height the narrow-layout sheet takes.
+const sheetFrac = 0.72
+
+// sheet draws a scrim (45 % dark / 30 % light; a press closes) over the
+// list and a bottom sheet with Raised elevation and 12-dp top corners.
+func (m *Main) sheet(gtx layout.Context, th *theme.Theme, emit func(Intent), details layout.Widget) layout.Dimensions {
+	full := gtx.Constraints.Max
+	scrimA := 0.30
+	if int(th.Bg.R)+int(th.Bg.G)+int(th.Bg.B) < 3*0x80 {
+		scrimA = 0.45
+	}
+	area := clip.Rect{Max: full}.Push(gtx.Ops)
+	event.Op(gtx.Ops, &m.scrim)
+	for {
+		ev, ok := gtx.Event(pointer.Filter{Target: &m.scrim, Kinds: pointer.Press | pointer.Scroll, ScrollY: pointer.ScrollRange{Min: -1e6, Max: 1e6}})
+		if !ok {
+			break
+		}
+		if e, ok := ev.(pointer.Event); ok && e.Kind == pointer.Press {
+			m.handleDetails(IntentSelect{}, emit)
+		}
+	}
+	paint.FillShape(gtx.Ops, color.NRGBA{A: uint8(scrimA * 255)}, clip.Rect{Max: full}.Op())
+	area.Pop()
+	h := int(float32(full.Y) * sheetFrac)
+	r := gtx.Dp(theme.RadiusPanel)
+	defer op.Offset(image.Pt(0, full.Y-h)).Push(gtx.Ops).Pop()
+	gtx.Constraints = layout.Exact(image.Pt(full.X, h))
+	components.Raised(gtx, th, theme.RadiusPanel, func(gtx layout.Context) layout.Dimensions {
+		rect := image.Rectangle{Max: gtx.Constraints.Max}
+		shape := clip.RRect{Rect: rect, NW: r, NE: r}
+		paint.FillShape(gtx.Ops, th.Surface, shape.Op(gtx.Ops))
+		defer shape.Push(gtx.Ops).Pop()
+		event.Op(gtx.Ops, &m.sheetTag) // presses on the sheet do not reach the scrim
+		for {
+			if _, ok := gtx.Event(pointer.Filter{Target: &m.sheetTag, Kinds: pointer.Press}); !ok {
+				break
+			}
+		}
+		return details(gtx)
+	})
+	return layout.Dimensions{Size: full}
 }
 
 // handleDetails forwards details intents, clearing the selection on close.
@@ -274,23 +347,74 @@ func (m *Main) handleDetails(i Intent, emit func(Intent)) {
 }
 
 func (m *Main) header(gtx layout.Context, th *theme.Theme, snap *state.Snapshot) layout.Dimensions {
-	agg := fmt.Sprintf("%d active · %s", snap.ActiveCount, platform.FormatSpeed(snap.TotalSpeedBps))
-	allTxt := "Pause all"
+	h := gtx.Dp(headerHeight)
+	gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, h))
+	paint.FillShape(gtx.Ops, th.Surface, clip.Rect{Max: gtx.Constraints.Max}.Op())
+	paint.FillShape(gtx.Ops, th.Hairline, clip.Rect{Min: image.Pt(0, h-max(1, gtx.Dp(1))), Max: gtx.Constraints.Max}.Op())
+	m.PillShown = snap.ActiveCount > 0 || snap.TotalSpeedBps > 0
+	m.HeaderHeight = h
+	allIcon, allDesc := icons.Pause, "Pause all"
 	if snap.QueuePaused {
-		allTxt = "Resume all"
+		allIcon, allDesc = icons.Play, "Resume all"
 	}
-	return layout.UniformInset(theme.S4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	layout.Inset{Left: theme.S4, Right: theme.S4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return appMark(gtx, th) }),
+				layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
+				layout.Rigid(bold(th, theme.Title, th.Text, brand.Name)),
+				layout.Rigid(layout.Spacer{Width: theme.S4}.Layout),
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min = image.Point{}
+					if !m.PillShown {
+						return layout.Dimensions{}
+					}
+					return aggregatePill(gtx, th, snap)
+				}),
+				layout.Rigid(components.IconButton(th, &m.pauseAll, allIcon, allDesc)),
+				layout.Rigid(layout.Spacer{Width: theme.S1}.Layout),
+				layout.Rigid(components.IconButton(th, &m.settings, icons.Settings, "Settings")),
+				layout.Rigid(layout.Spacer{Width: theme.S3}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					Note("Add")
+					return components.Button(th, &m.add, "Add", components.Primary, components.Small(), components.WithIcon(icons.Plus))(gtx)
+				}),
+			)
+		})
+	})
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h)}
+}
+
+// appMark is the 28-dp accent rounded square with the arrow-down glyph.
+func appMark(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	sz := image.Pt(gtx.Dp(28), gtx.Dp(28))
+	paint.FillShape(gtx.Ops, th.Accent, clip.UniformRRect(image.Rectangle{Max: sz}, gtx.Dp(theme.RadiusRow)).Op(gtx.Ops))
+	gtx.Constraints = layout.Exact(sz)
+	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return icons.ArrowDown(gtx, 16, th.OnAccent) })
+	return layout.Dimensions{Size: sz}
+}
+
+// aggregatePill shows "3 active · 8.4 MB/s"; the speed sits in a slot as
+// wide as its zero-digit form so the pill does not jitter.
+func aggregatePill(gtx layout.Context, th *theme.Theme, snap *state.Snapshot) layout.Dimensions {
+	txt := fmt.Sprintf("%d active%s%s", snap.ActiveCount, metaSep, platform.FormatSpeed(snap.TotalSpeedBps))
+	record(txt)
+	m := op.Record(gtx.Ops)
+	d := layout.Inset{Left: theme.S2 + theme.S0, Right: theme.S2 + theme.S0, Top: theme.S0 + 1, Bottom: theme.S0 + 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(bold(th, theme.Display, th.Text, brand.Name)),
-			layout.Rigid(layout.Spacer{Width: theme.S3}.Layout),
-			layout.Flexed(1, Label(th, theme.Caption, th.TextMuted, agg)),
-			layout.Rigid(Row(
-				components.Button(th, &m.add, "Add download", components.Primary),
-				components.Button(th, &m.pauseAll, allTxt, components.Secondary),
-				components.Button(th, &m.settings, "Settings", components.Ghost),
-			)),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				r := gtx.Dp(6)
+				paint.FillShape(gtx.Ops, th.Accent, clip.Ellipse{Max: image.Pt(r, r)}.Op(gtx.Ops))
+				return layout.Dimensions{Size: image.Pt(r+gtx.Dp(6), r)}
+			}),
+			layout.Rigid(slot(th, theme.Caption, th.Text, txt)),
 		)
 	})
+	call := m.Stop()
+	paint.FillShape(gtx.Ops, th.SurfaceSunken, clip.UniformRRect(image.Rectangle{Max: d.Size}, d.Size.Y/2).Op(gtx.Ops))
+	call.Add(gtx.Ops)
+	return d
 }
 
 // listItem is a flattened list entry: a section header or a task row.
@@ -318,7 +442,7 @@ func (m *Main) items(snap *state.Snapshot) []listItem {
 
 func (m *Main) taskList(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time, top int) layout.Dimensions {
 	if len(snap.Tasks) == 0 {
-		return emptyState(th, &m.add)(gtx)
+		return layout.Dimensions{Size: gtx.Constraints.Max} // drawn window-centred by Layout
 	}
 	items := m.items(snap)
 	for _, it := range items {
@@ -357,7 +481,7 @@ func (m *Main) listItem(gtx layout.Context, th *theme.Theme, snap *state.Snapsho
 
 // events converts last frame's clicks into intents.
 func (m *Main) events(gtx layout.Context, snap *state.Snapshot, emit func(Intent)) {
-	if m.add.Clicked(gtx) {
+	if m.add.Clicked(gtx) || m.emptyAdd.Clicked(gtx) {
 		emit(IntentOpenAdd{})
 	}
 	if m.pauseAll.Clicked(gtx) {

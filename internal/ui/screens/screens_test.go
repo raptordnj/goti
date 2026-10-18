@@ -18,7 +18,7 @@ func TestMainEmptyState(t *testing.T) {
 	var m Main
 	hs := newHarness(800, 600)
 	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, &state.Snapshot{}, now) })
-	for _, s := range []string{"No downloads yet", "Ctrl+V to paste a link"} {
+	for _, s := range []string{"No downloads yet", EmptyHint} {
 		if !hasText(t, s) {
 			t.Errorf("missing %q in %v", s, RecordedTexts())
 		}

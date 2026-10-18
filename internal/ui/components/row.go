@@ -229,7 +229,7 @@ func textColumn(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWid
 		layout.Rigid(name.Layout),
 		layout.Rigid(layout.Spacer{Height: theme.S0}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return metaLine(gtx, th, v, now, col) }),
-		layout.Rigid(layout.Spacer{Height: 5}.Layout),
+		layout.Rigid(layout.Spacer{Height: theme.S1}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			// The bar's space is always reserved so rows align.
 			if !bar {

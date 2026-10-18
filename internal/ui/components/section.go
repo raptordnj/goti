@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gioui.org/font"
 	"gioui.org/io/pointer"
 	"gioui.org/layout"
 	"gioui.org/unit"
@@ -55,6 +56,7 @@ func sectionRow(gtx layout.Context, th *theme.Theme, title string, count int, co
 			layout.Rigid(layout.Spacer{Width: theme.S1 + 2}.Layout))
 	}
 	l := styled(th, theme.StyleCaption, th.TextMuted, strings.ToUpper(title))
+	l.Font.Weight = font.SemiBold // Inter ships no Bold; SemiBold is the heaviest face
 	children = append(children,
 		layout.Rigid(l.Layout),
 		layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),

@@ -2,21 +2,35 @@ package screens
 
 import (
 	"fmt"
+	"image"
 	"strconv"
 	"time"
 
 	"gioui.org/layout"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/domain"
 	"github.com/raptordnj/goti/internal/platform"
 	"github.com/raptordnj/goti/internal/ui/components"
+	"github.com/raptordnj/goti/internal/ui/icons"
 	"github.com/raptordnj/goti/internal/ui/state"
 	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // maxRetriesShown caps the retry history in the details panel.
 const maxRetriesShown = 10
+
+// Details geometry.
+const (
+	detailsTile   unit.Dp = 36
+	labelColumn   unit.Dp = 96
+	detailsLabel  unit.Sp = 12
+	detailsInsetX         = theme.S4
+)
 
 // Details is the details panel of one task (pane or sheet; Main decides).
 type Details struct {
@@ -26,8 +40,9 @@ type Details struct {
 	list                                                                        widget.List
 }
 
-// Layout draws the details of task d.ID and returns intents. Close emits
-// IntentSelect{ID: ""}.
+// Layout draws the details of task d.ID over the full constraints and
+// returns intents. Close emits IntentSelect{ID: ""}. The caller paints the
+// surface (pane or sheet chrome).
 func (d *Details) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time) []Intent {
 	var v *state.TaskView
 	for i := range snap.Tasks {
@@ -40,17 +55,27 @@ func (d *Details) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapsh
 	}
 	out := d.events(gtx, *v)
 	gtx.Constraints.Min = gtx.Constraints.Max
-	layout.Background{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return fill(gtx, th.Surface)
-	}, func(gtx layout.Context) layout.Dimensions {
-		ws := d.content(th, *v, now)
-		d.list.Axis = layout.Vertical
-		return layout.UniformInset(theme.S4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return d.list.Layout(gtx, len(ws), func(gtx layout.Context, i int) layout.Dimensions {
-				return layout.Inset{Bottom: theme.S3}.Layout(gtx, ws[i])
+	groups := d.groups(th, *v)
+	d.list.Axis = layout.Vertical
+	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: theme.S4, Bottom: theme.S3, Left: detailsInsetX, Right: theme.S3}.Layout(gtx, d.header(th, *v, now))
+		}),
+		layout.Rigid(hairline(th)),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return d.list.Layout(gtx, len(groups), func(gtx layout.Context, i int) layout.Dimensions {
+				in := layout.Inset{Top: theme.S4, Left: detailsInsetX, Right: detailsInsetX}
+				if i == len(groups)-1 {
+					in.Bottom = theme.S4
+				}
+				return in.Layout(gtx, groups[i])
 			})
-		})
-	})
+		}),
+		layout.Rigid(hairline(th)),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: theme.S3, Bottom: theme.S3, Left: detailsInsetX, Right: theme.S3}.Layout(gtx, d.actions(th, *v))
+		}),
+	)
 	return out
 }
 
@@ -74,12 +99,96 @@ func (d *Details) events(gtx layout.Context, v state.TaskView) []Intent {
 	return out
 }
 
-// field is a muted caption above a wrapping value.
-func field(th *theme.Theme, name, value string) layout.Widget {
-	return Column(theme.S1, Label(th, theme.Caption, th.TextMuted, name), Text(th, theme.Body, th.Text, value, 0))
+// header: file tile, name (wraps to 2 lines), state dot + text, close.
+func (d *Details) header(th *theme.Theme, v state.TaskView, now time.Time) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		col := theme.StateColor(th.Palette, v.State, v.Interrupted)
+		stCol := th.TextMuted
+		if v.State == domain.StateFailed {
+			stCol = th.Error
+		}
+		return layout.Flex{Alignment: layout.Start}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				sz := image.Pt(gtx.Dp(detailsTile), gtx.Dp(detailsTile))
+				paint.FillShape(gtx.Ops, th.SurfaceSunken, clip.UniformRRect(image.Rectangle{Max: sz}, gtx.Dp(theme.RadiusRow)).Op(gtx.Ops))
+				gtx.Constraints = layout.Exact(sz)
+				layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return icons.ForFile(v.FileName)(gtx, 18, th.TextMuted)
+				})
+				return layout.Dimensions{Size: sz}
+			}),
+			layout.Rigid(layout.Spacer{Width: theme.S3}.Layout),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.X = gtx.Constraints.Max.X
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						record(v.FileName)
+						l := labelStyle(th, theme.Title, th.Text, v.FileName)
+						l.Font.Weight = theme.StyleTitle.Weight
+						l.MaxLines = 2
+						return l.Layout(gtx)
+					}),
+					layout.Rigid(layout.Spacer{Height: theme.S1}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								r := gtx.Dp(6)
+								paint.FillShape(gtx.Ops, col, clip.Ellipse{Max: image.Pt(r, r)}.Op(gtx.Ops))
+								return layout.Dimensions{Size: image.Pt(r+gtx.Dp(6), r)}
+							}),
+							layout.Rigid(Label(th, theme.Caption, stCol, state.StatusText(v, now))),
+						)
+					}),
+				)
+			}),
+			layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
+			layout.Rigid(components.IconButton(th, &d.close, icons.Close, "Close details")),
+		)
+	}
 }
 
-func (d *Details) content(th *theme.Theme, v state.TaskView, now time.Time) []layout.Widget {
+// kv is one key/value pair; slot values keep a fixed (zero-digit) width.
+type kv struct {
+	key, value string
+	numeric    bool
+}
+
+// group is a titled block of key/value rows.
+func group(th *theme.Theme, title string, rows []kv) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		ch := []layout.FlexChild{
+			layout.Rigid(bold(th, theme.Caption, th.TextMuted, title)),
+			layout.Rigid(layout.Spacer{Height: theme.S2}.Layout),
+		}
+		for i, r := range rows {
+			if i > 0 {
+				ch = append(ch, layout.Rigid(layout.Spacer{Height: theme.S2}.Layout))
+			}
+			ch = append(ch, layout.Rigid(kvRow(th, r)))
+		}
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ch...)
+	}
+}
+
+func kvRow(th *theme.Theme, r kv) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Alignment: layout.Baseline}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				w := gtx.Dp(labelColumn)
+				gtx.Constraints.Min.X, gtx.Constraints.Max.X = w, w
+				return Label(th, detailsLabel, th.TextMuted, r.key)(gtx)
+			}),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				if r.numeric {
+					return slot(th, theme.Body, th.Text, r.value)(gtx)
+				}
+				return Text(th, theme.Body, th.Text, r.value, 0)(gtx)
+			}),
+		)
+	}
+}
+
+func (d *Details) groups(th *theme.Theme, v state.TaskView) []layout.Widget {
 	size := "Unknown"
 	if v.TotalKnown {
 		size = platform.FormatBytes(v.Total)
@@ -91,67 +200,92 @@ func (d *Details) content(th *theme.Theme, v state.TaskView, now time.Time) []la
 	if v.Resumable {
 		resume = "Supported"
 	}
-	ws := []layout.Widget{
-		Row(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Max.X -= gtx.Dp(theme.S6 * 2)
-			return bold(th, theme.Title, th.Text, v.FileName)(gtx)
-		}, components.Button(th, &d.close, "Close", components.Ghost)),
-		Label(th, theme.Caption, th.TextMuted, state.StatusText(v, now)),
-		field(th, "URL", v.URL),
-		field(th, "Destination", v.DestPath),
-		field(th, "Size", size),
-		field(th, "Downloaded", platform.FormatBytes(v.Downloaded)),
-		field(th, "Speed", platform.FormatSpeed(v.SpeedBps)),
-		field(th, "Connections", strconv.Itoa(v.Conns)),
+	transfer := []kv{
+		{"Size", size, true},
+		{"Downloaded", platform.FormatBytes(v.Downloaded), true},
+		{"Speed", platform.FormatSpeed(v.SpeedBps), true},
+		{"Connections", strconv.Itoa(v.Conns), true},
+	}
+	if v.ChunksTotal > 0 {
+		transfer = append(transfer, kv{"Chunks", fmt.Sprintf("%d of %d done", v.ChunksDone, v.ChunksTotal), true})
 	}
 	if v.Strategy != "" {
-		ws = append(ws, field(th, "Strategy", v.Strategy+metaSep+v.DecisionSummary))
+		strat := v.Strategy
+		if v.DecisionSummary != "" {
+			strat += metaSep + v.DecisionSummary
+		}
+		transfer = append(transfer, kv{"Strategy", strat, false})
 	}
-	ws = append(ws, field(th, "Range support", ranges))
-	if v.ChunksTotal > 0 {
-		ws = append(ws, field(th, "Chunks", fmt.Sprintf("%d of %d done", v.ChunksDone, v.ChunksTotal)))
+	source := []kv{
+		{"URL", v.URL, false},
+		{"Destination", v.DestPath, false},
+		{"Range support", ranges, false},
+		{"Resume", resume, false},
 	}
-	ws = append(ws, field(th, "Resume", resume))
-	if v.VerifyResult != "" {
-		ws = append(ws, field(th, "Integrity", v.VerifyResult))
+	verify := v.VerifyResult
+	if verify == "" {
+		verify = "Not verified"
 	}
+	ws := []layout.Widget{
+		group(th, "Transfer", transfer),
+		group(th, "Source", source),
+		group(th, "Integrity", []kv{{"Checksum", verify, false}}),
+	}
+	var hist []kv
 	if v.LastError != "" {
-		ws = append(ws, field(th, "Last error", v.LastError))
+		hist = append(hist, kv{"Last error", v.LastError, false})
 		if v.LastErrorAction != "" {
-			ws = append(ws, field(th, "Suggested action", v.LastErrorAction))
+			hist = append(hist, kv{"Suggested action", v.LastErrorAction, false})
 		}
 	}
 	if n := len(v.Retries); n > 0 {
-		ws = append(ws, Label(th, theme.Caption, th.TextMuted, "Retry history"))
 		for _, a := range v.Retries[max(0, n-maxRetriesShown):] {
-			ws = append(ws, Text(th, theme.Caption, th.Text,
-				fmt.Sprintf("#%d %s%s%s", a.Attempt, a.Kind, metaSep, a.Message), 2))
+			hist = append(hist, kv{fmt.Sprintf("Attempt %d", a.Attempt), a.Kind + metaSep + a.Message, false})
 		}
 	}
-	return append(ws, d.buttons(th, v))
+	if len(hist) > 0 {
+		ws = append(ws, group(th, "History", hist))
+	}
+	return ws
 }
 
-// metaSep separates inline values (Go-font covered).
+// metaSep separates inline values (Inter covers the middle dot).
 const metaSep = " · "
 
-func (d *Details) buttons(th *theme.Theme, v state.TaskView) layout.Widget {
+// actions is the bottom action row: CanX-gated text buttons on the left,
+// always-available icon actions on the right.
+func (d *Details) actions(th *theme.Theme, v state.TaskView) layout.Widget {
 	var ws []layout.Widget
-	add := func(ok bool, c *widget.Clickable, txt string, k components.ButtonKind) {
+	add := func(ok bool, c *widget.Clickable, txt string, k components.ButtonKind, ic icons.Icon) {
 		if ok {
-			ws = append(ws, components.Button(th, c, txt, k))
+			ws = append(ws, components.Button(th, c, txt, k, components.Small(), components.WithIcon(ic)))
 		}
 	}
-	add(v.CanPause, &d.pause, "Pause", components.Secondary)
-	add(v.CanResume, &d.resume, "Resume", components.Primary)
-	add(v.CanRetry, &d.retry, "Retry", components.Primary)
-	add(v.CanRestart, &d.restart, "Restart", components.Secondary)
-	add(v.CanOpen, &d.open, "Open file", components.Primary)
-	add(v.CanCancel, &d.cancel, "Cancel", components.Danger)
-	row1 := Row(ws...)
-	row2 := Row(
-		components.Button(th, &d.folder, "Open folder", components.Ghost),
-		components.Button(th, &d.copyURL, "Copy URL", components.Ghost),
-		components.Button(th, &d.remove, "Remove…", components.Danger),
-	)
-	return Column(theme.S2, row1, row2)
+	add(v.CanResume, &d.resume, "Resume", components.Primary, icons.Play)
+	add(v.CanRetry, &d.retry, "Retry", components.Primary, icons.Retry)
+	add(v.CanOpen, &d.open, "Open", components.Primary, icons.File)
+	add(v.CanPause, &d.pause, "Pause", components.Secondary, icons.Pause)
+	add(v.CanRestart, &d.restart, "Restart", components.Secondary, icons.Restart)
+	add(v.CanCancel, &d.cancel, "Cancel", components.Secondary, icons.Close)
+	return func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(Row(ws...)),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
+			}),
+			layout.Rigid(components.IconButton(th, &d.folder, icons.Folder, "Open folder")),
+			layout.Rigid(components.IconButton(th, &d.copyURL, icons.Copy, "Copy URL")),
+			layout.Rigid(components.IconButton(th, &d.remove, icons.Trash, "Remove…")),
+		)
+	}
+}
+
+// hairline is a full-width 1-dp divider.
+func hairline(th *theme.Theme) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		sz := image.Pt(gtx.Constraints.Max.X, max(1, gtx.Dp(1)))
+		paint.FillShape(gtx.Ops, th.Hairline, clip.Rect{Max: sz}.Op())
+		return layout.Dimensions{Size: sz}
+	}
 }
