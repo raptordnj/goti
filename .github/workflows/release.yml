@@ -1,23 +1,39 @@
 name: release
 
+# Runs only when a version tag is pushed: git tag vX.Y.Z && git push origin vX.Y.Z
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Version to stamp into the build (artifacts only, no release)
-        default: 0.0.0-dev
 
 permissions:
   contents: read
 
 env:
-  # Tag push: strip the leading "v"; dispatch: the input.
-  VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version }}
+  # The tag name; jobs strip the leading "v".
+  VERSION: ${{ github.ref_name }}
 
 jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles2-mesa-dev libegl1-mesa-dev libffi-dev libxcursor-dev libvulkan-dev libxfixes-dev
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "gofmt needed:"; echo "$out"; exit 1; fi
+      - run: go vet ./...
+      - run: go test -race -short ./...
+
   linux:
+    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +78,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    needs: test
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -101,6 +118,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    needs: test
     strategy:
       fail-fast: false
       matrix:

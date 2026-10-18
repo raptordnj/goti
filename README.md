@@ -315,9 +315,10 @@ Pushing a version tag builds every platform and publishes a GitHub Release
 git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
-A tag containing `-` (for example `v1.2.0-rc.1`) is published as a pre-release.
-To build the artifacts without a release, run the workflow by hand:
-`gh workflow run release.yml -f version=X.Y.Z` (artifacts are attached to the run).
+GitHub Actions runs only on version tags: the tag push runs the checks (gofmt, vet, race tests),
+builds every platform (Linux deb/rpm/Arch/tar.gz for amd64 and arm64, Windows NSIS installer and
+zip, macOS dmg for Apple Silicon and Intel) and publishes them in one GitHub Release with
+`SHA256SUMS`. A tag containing `-` (for example `v1.2.0-rc.1`) is published as a pre-release.
 
 ## Local smoke benchmarks
 

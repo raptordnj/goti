@@ -94,3 +94,10 @@ delegated). Covers both binaries: `goti` (Gio GUI, cgo on Linux/macOS) and `goti
 
 Code signing/notarization with real certificates, AUR/Flathub/winget/Homebrew publication,
 auto-update, Windows arm64, Linux 32-bit.
+
+## Amendment 2026-10-18 (user): tag-only CI
+
+"CI only works on tag release and release contains multi platform builds": `ci.yml` is removed and
+`release.yml` triggers only on `v*` tag pushes (no `workflow_dispatch`, no branch/PR runs). Its
+`test` job (gofmt, vet, `go test -race -short ./...`) gates the linux/windows/macos build jobs; the
+release job publishes all platform artifacts plus `SHA256SUMS` in one GitHub Release.
