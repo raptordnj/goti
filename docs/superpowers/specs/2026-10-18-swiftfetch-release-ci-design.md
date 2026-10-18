@@ -48,7 +48,7 @@ delegated). Covers both binaries: `goti` (Gio GUI, cgo on Linux/macOS) and `goti
   EstimatedSize, NoModify/NoRepair=1); upgrade-in-place detects a previous install via that key and
   runs its uninstaller silently first; refuses to proceed while Goti.exe is running (asks the
   user to quit it); uninstall removes program files, shortcuts, PATH entry (EnVar plugin not used —
-  PATH edited via registry + `WM_SETTINGCHANGE` broadcast) and keeps user data in `%APPDATA%` (stated
+  PATH edited via registry + `WM_SETTINGCHANGE` broadcast) and keeps user data in `%LOCALAPPDATA%\Goti` (stated
   on the uninstall page). Installer and uninstaller carry the app icon and version info. Built with
   `makensis -DVERSION=<v> -DARCH=amd64 -DSRCDIR=<dir>`; runs on Linux too (`nsis` package) for local
   verification.

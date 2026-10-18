@@ -66,7 +66,10 @@ VIAddVersionKey /LANG=1033 "Comments" "Fast by design. Reliable by nature."
 !define MUI_ABORTWARNING
 !define MUI_COMPONENTSPAGE_SMALLDESC
 !define MUI_WELCOMEPAGE_TEXT "This will install ${APPNAME} ${VERSION} on your computer.$\r$\n$\r$\nFast by design. Reliable by nature.$\r$\n$\r$\nPlease quit ${APPNAME} before continuing. Click Next to continue."
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${APPEXE}"
+; Launch through explorer.exe so Goti runs as the desktop user, not elevated
+; (MUI_FINISHPAGE_RUN must be non-empty for the checkbox to show).
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${APPEXE}" ; ignored: RUN_FUNCTION below does the launch
+!define MUI_FINISHPAGE_RUN_FUNCTION LaunchGoti
 !define MUI_FINISHPAGE_RUN_TEXT "Run ${APPNAME}"
 !define MUI_UNCONFIRMPAGE_TEXT_TOP "${APPNAME} will be removed from $INSTDIR.$\r$\nYour downloads, settings and history in %LOCALAPPDATA%\${APPNAME} are kept."
 
@@ -320,6 +323,11 @@ Section "-Uninstall previous version" SecUpgrade
       DetailPrint "Removing previous version from $1"
       ExecWait '"$0" /S _?=$1' $2
       DetailPrint "Previous uninstaller exited with code $2"
+      ${If} $2 != 0
+        MessageBox MB_OK|MB_ICONSTOP "The previous version of ${APPNAME} could not be removed (exit code $2). Setup will now stop; nothing was changed." /SD IDOK
+        SetErrorLevel 2
+        Abort
+      ${EndIf}
       Delete $0
       RMDir $1
     ${EndIf}
@@ -361,7 +369,14 @@ SectionEnd
 
 Section "-Finish registration"
   WriteRegDWORD HKLM "${UNINSTKEY}" "AddedToPath" $PathAdded
-  ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+  ; Size in KiB of the files this installer wrote, not the whole folder.
+  StrCpy $0 0
+  ${GetSize} "$INSTDIR" "/M=${APPEXE} /S=0K /G=0" $1 $2 $3
+  IntOp $0 $0 + $1
+  ${GetSize} "$INSTDIR" "/M=Uninstall.exe /S=0K /G=0" $1 $2 $3
+  IntOp $0 $0 + $1
+  ${GetSize} "$INSTDIR\bin" "/M=goti-cli.exe /S=0K /G=0" $1 $2 $3
+  IntOp $0 $0 + $1
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKLM "${UNINSTKEY}" "EstimatedSize" $0
 SectionEnd
@@ -386,6 +401,10 @@ Function .onInit
     !insertmacro SelectSection ${SecPath}
   ${EndIf}
   Call CheckNotRunning
+FunctionEnd
+
+Function LaunchGoti
+  Exec '"$WINDIR\explorer.exe" "$INSTDIR\${APPEXE}"'
 FunctionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
