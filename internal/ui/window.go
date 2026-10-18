@@ -277,6 +277,9 @@ func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snap
 		}
 		c.handle(in, snap, now)
 	}
+	if c.dialog != dialogNone || c.settingsOpen {
+		c.main.CloseMenu() // a modal surface supersedes the row menu
+	}
 	if len(intents) > 0 {
 		gtx.Execute(op.InvalidateCmd{})
 	}

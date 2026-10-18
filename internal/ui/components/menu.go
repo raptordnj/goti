@@ -101,6 +101,33 @@ func (m *MenuState) Layout(gtx layout.Context, th *theme.Theme) (picked string) 
 	return picked
 }
 
+// Item returns the clickable of the item with key k (nil if absent), so
+// callers and tests can focus or activate it.
+func (m *MenuState) Item(k string) *widget.Clickable {
+	if len(m.clicks) != len(m.Items) {
+		m.clicks = make([]widget.Clickable, len(m.Items))
+	}
+	for i := range m.Items {
+		if m.Items[i].Key == k {
+			return &m.clicks[i]
+		}
+	}
+	return nil
+}
+
+// SetItems replaces the items, keeping click state when the keys are
+// unchanged (so a pick in flight is not lost).
+func (m *MenuState) SetItems(items []MenuItem) {
+	same := len(items) == len(m.Items)
+	for i := 0; same && i < len(items); i++ {
+		same = items[i].Key == m.Items[i].Key
+	}
+	m.Items = items
+	if !same {
+		m.clicks = nil
+	}
+}
+
 // placeMenu positions a box of size sz below-right of anchor, flipping
 // above/left when it would overflow win, and clamps it inside win.
 func placeMenu(anchor, sz, win image.Point, margin int) image.Rectangle {

@@ -23,6 +23,7 @@ type KeyContext struct {
 	SettingsOpen  bool
 	InText        bool // a text field has focus
 	ButtonFocused bool // a non-text widget has focus: Space/Enter are its own
+	MenuOpen      bool // a popover menu owns Esc, arrows, Space and Enter
 }
 
 // shortcutKeys are the keys the window registers filters for.
@@ -64,7 +65,7 @@ func Shortcut(ev key.Event, c KeyContext) screens.Intent {
 		}
 		return nil
 	}
-	if ev.Modifiers != 0 {
+	if ev.Modifiers != 0 || c.MenuOpen {
 		return nil
 	}
 	if ev.Name == key.NameEscape {

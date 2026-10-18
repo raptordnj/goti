@@ -72,7 +72,9 @@ func TestMainCancelAsksConfirm(t *testing.T) {
 	s := snapOf(v)
 	lay := func(gtx layout.Context) { m.Layout(gtx, th, s, now) }
 	hs.frame(lay)
-	hs.click(&m.Row("a").Cancel, lay)
+	hs.click(&m.Row("a").More, lay)
+	hs.frame(lay)
+	hs.click(m.Row("a").Menu.Item("cancel"), lay)
 	var got []Intent
 	hs.frame(func(gtx layout.Context) { got = m.Layout(gtx, th, s, now) })
 	if !slices.Contains(got, Intent(IntentConfirm{Kind: ConfirmCancel, ID: "a"})) {
@@ -197,5 +199,93 @@ func TestDetailsRangeChunksResume(t *testing.T) {
 	hs.frame(func(gtx layout.Context) { d.Layout(gtx, th, snapOf(v, w), now) })
 	if !hasText(t, "No") || !hasText(t, "Not supported") || hasText(t, "Chunks") {
 		t.Errorf("b: %v", RecordedTexts())
+	}
+}
+
+func TestSectionCollapse(t *testing.T) {
+	var m Main
+	hs := newHarness(800, 600)
+	s := snapOf(task("a", domain.StateDownloading, state.SectionActive), task("b", domain.StateCompleted, state.SectionCompleted),
+		task("c", domain.StateFailed, state.SectionFailed))
+	lay := func(gtx layout.Context) { m.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	if !reflect.DeepEqual(m.ShownTasks, []string{"a", "b", "c"}) {
+		t.Fatalf("expanded: %v", m.ShownTasks)
+	}
+	if m.Collapsible(state.SectionActive) != nil || m.Collapsible(state.SectionCompleted) == nil || m.Collapsible(state.SectionFailed) == nil {
+		t.Fatal("only Completed and Failed are collapsible")
+	}
+	hs.click(m.Collapsible(state.SectionCompleted), lay)
+	hs.frame(lay)
+	hs.frame(lay)
+	if !reflect.DeepEqual(m.ShownTasks, []string{"a", "c"}) {
+		t.Fatalf("collapsed: %v", m.ShownTasks)
+	}
+	want := []state.Section{state.SectionActive, state.SectionCompleted, state.SectionFailed}
+	if !reflect.DeepEqual(m.ShownSections, want) {
+		t.Fatalf("headers %v want %v", m.ShownSections, want)
+	}
+}
+
+func TestRowMenuIntents(t *testing.T) {
+	v := task("a", domain.StateCompleted, state.SectionCompleted)
+	v.CanOpen, v.CanRestart = true, true
+	cases := map[string]Intent{
+		"open":      IntentOpen{Path: v.DestPath},
+		"folder":    IntentOpen{Path: v.DestPath, Reveal: true},
+		"copy-url":  IntentCopy{Text: v.URL},
+		"copy-path": IntentCopy{Text: v.DestPath},
+		"restart":   IntentCommand{Cmd: app.RestartTask{ID: "a"}},
+		"remove":    IntentConfirm{Kind: ConfirmRemove, ID: "a"},
+	}
+	for key, want := range cases {
+		var m Main
+		hs := newHarness(800, 600)
+		s := snapOf(v)
+		lay := func(gtx layout.Context) { m.Layout(gtx, th, s, now) }
+		hs.frame(lay)
+		hs.click(&m.Row("a").More, lay)
+		hs.frame(lay)
+		if !m.MenuOpen() {
+			t.Fatalf("%s: menu not open", key)
+		}
+		item := m.Row("a").Menu.Item(key)
+		if item == nil {
+			t.Fatalf("%s: no menu item", key)
+		}
+		hs.click(item, lay)
+		var got []Intent
+		hs.frame(func(gtx layout.Context) { got = m.Layout(gtx, th, s, now) })
+		if !slices.Contains(got, want) {
+			t.Errorf("%s: intents %#v want %#v", key, got, want)
+		}
+		if m.MenuOpen() {
+			t.Errorf("%s: menu still open after pick", key)
+		}
+	}
+}
+
+func TestRowMenuCancelGated(t *testing.T) {
+	v := task("a", domain.StateDownloading, state.SectionActive)
+	v.CanPause, v.CanCancel = true, true
+	var m Main
+	hs := newHarness(800, 600)
+	s := snapOf(v)
+	lay := func(gtx layout.Context) { m.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	hs.click(&m.Row("a").More, lay)
+	hs.frame(lay)
+	item := m.Row("a").Menu.Item("cancel")
+	if item == nil {
+		t.Fatal("no cancel item")
+	}
+	hs.click(item, lay)
+	s.Tasks[0].CanCancel = false // state changed before the pick lands
+	var got []Intent
+	hs.frame(func(gtx layout.Context) { got = m.Layout(gtx, th, s, now) })
+	for _, in := range got {
+		if _, ok := in.(IntentConfirm); ok {
+			t.Fatalf("cancel emitted although CanCancel is false: %#v", got)
+		}
 	}
 }

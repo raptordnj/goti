@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"sync"
+	"time"
 
 	"gioui.org/io/event"
 	"gioui.org/layout"
@@ -39,23 +40,48 @@ func ring(gtx layout.Context, c color.NRGBA, sz image.Point, radius unit.Dp) {
 }
 
 // motion holds eased per-widget state values keyed by widget pointer.
-// Widgets live as long as the window, so the map stays small.
+// Entries not used for motionTTL are swept so widgets of vanished rows,
+// dialogs and so on do not accumulate.
 var motion = struct {
 	sync.Mutex
-	m map[any]*anim.Value
-}{m: map[any]*anim.Value{}}
+	m         map[any]*motionEntry
+	lastSweep time.Time
+}{m: map[any]*motionEntry{}}
+
+type motionEntry struct {
+	v    anim.Value
+	used time.Time
+}
+
+const motionTTL = 5 * time.Second
 
 // eased returns the eased value for key heading toward target.
 func eased(gtx layout.Context, key any, target float32) float32 {
 	motion.Lock()
-	v, ok := motion.m[key]
+	e, ok := motion.m[key]
 	if !ok {
-		v = new(anim.Value)
-		motion.m[key] = v
+		e = new(motionEntry)
+		motion.m[key] = e
+	}
+	e.used = gtx.Now
+	if gtx.Now.Sub(motion.lastSweep) > time.Second || gtx.Now.Before(motion.lastSweep) {
+		motion.lastSweep = gtx.Now
+		for k, o := range motion.m {
+			if d := gtx.Now.Sub(o.used); d > motionTTL || d < 0 {
+				delete(motion.m, k)
+			}
+		}
 	}
 	motion.Unlock()
-	v.Set(target)
-	return v.Get(gtx)
+	e.v.Set(target)
+	return e.v.Get(gtx)
+}
+
+// motionLen reports the number of tracked eased values (tests).
+func motionLen() int {
+	motion.Lock()
+	defer motion.Unlock()
+	return len(motion.m)
 }
 
 // fillRRect paints a rounded rectangle of size sz.

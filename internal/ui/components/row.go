@@ -1,14 +1,19 @@
 package components
 
 import (
-	"fmt"
+	"image"
 	"image/color"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"gioui.org/font"
+	"gioui.org/gesture"
+	"gioui.org/io/pointer"
 	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
+	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/raptordnj/goti/internal/domain"
@@ -19,129 +24,51 @@ import (
 	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
-// RowWidgets is the per-row widget state. Shown records the action buttons
-// laid out in the most recent frame (names: pause, resume, cancel, retry,
-// restart, open, menu); ShownName is the (ellipsized) file name drawn.
+// Row geometry.
+const (
+	rowHeight unit.Dp = 56
+	tileSize  unit.Dp = 32
+	actionBox unit.Dp = 28
+)
+
+// RowWidgets is the per-row widget state. All of a row's animation state
+// lives here, so it is dropped with the row. Shown records the trailing
+// buttons laid out in the most recent frame (pause, resume, retry, open,
+// menu); ShownName is the (ellipsized) file name drawn and NameWidth the
+// width of the text column in px. MoreAt is the bottom-right corner of the
+// more button relative to the row origin (menu anchor).
 type RowWidgets struct {
-	Pause, Resume, Cancel, Retry, Restart, Open, Menu, Select widget.Clickable
-	Progress                                                  anim.Value
-	Shown                                                     []string
-	ShownName                                                 string
+	Pause, Resume, Retry, Open, More, Select widget.Clickable
+	Hover                                    gesture.Hover
+	Progress                                 anim.Value
+	Menu                                     MenuState
+	Shown                                    []string
+	ShownName                                string
+	NameWidth                                int
+	MoreAt                                   image.Point
+
+	hot, sel anim.Value
 }
 
-// fileGlyph returns a short type badge for name.
-func fileGlyph(name string) string {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".zip", ".tar", ".gz", ".xz", ".7z", ".rar", ".zst":
-		return "ZIP"
-	case ".iso", ".img":
-		return "ISO"
-	case ".mp4", ".mkv", ".webm", ".avi", ".mov":
-		return "VID"
-	case ".mp3", ".flac", ".ogg", ".wav":
-		return "AUD"
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
-		return "IMG"
-	case ".pdf", ".txt", ".doc", ".docx", ".md":
-		return "DOC"
+// RowMenuItems lists the overflow menu of v; CanX-gated entries appear only
+// when allowed.
+func RowMenuItems(v state.TaskView) []MenuItem {
+	var out []MenuItem
+	if v.CanOpen {
+		out = append(out, MenuItem{Key: "open", Label: "Open file", Icon: icons.File})
 	}
-	return "FILE"
-}
-
-// rowMeta builds "12 MB / 40 MB · 30% · 1.2 MB/s · 10s".
-func rowMeta(v state.TaskView) string {
-	parts := []string{platform.FormatBytes(v.Downloaded)}
-	if v.TotalKnown {
-		parts[0] += " / " + platform.FormatBytes(v.Total)
-	}
-	if v.Percent >= 0 {
-		parts = append(parts, fmt.Sprintf("%.0f%%", v.Percent))
-	}
-	if v.SpeedBps > 0 {
-		parts = append(parts, platform.FormatSpeed(v.SpeedBps))
-	}
-	if v.ETA != nil {
-		parts = append(parts, platform.FormatETA(*v.ETA))
-	}
-	return strings.Join(parts, metaSep)
-}
-
-func statusColor(th *theme.Theme, v state.TaskView) color.NRGBA {
-	switch {
-	case v.State == domain.StateFailed:
-		return th.Error
-	case v.CanOpen:
-		return th.Success
-	}
-	return th.TextMuted
-}
-
-// TaskRow renders one task: glyph, name, status, progress, meta and the
-// action buttons allowed by the CanX flags.
-func TaskRow(th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time) layout.Widget {
-	return func(gtx layout.Context) layout.Dimensions {
-		w.Shown = w.Shown[:0]
-		return FocusRing(gtx, th, &w.Select, theme.RadiusRow, func(gtx layout.Context) layout.Dimensions {
-			return w.Select.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				gtx.Constraints.Min.Y = 0
-				bg := th.Surface
-				if w.Select.Hovered() {
-					bg = theme.Mix(th.Surface, th.Text, 0.04)
-				}
-				return background(bg, theme.RadiusRow, func(gtx layout.Context) layout.Dimensions {
-					return layout.UniformInset(theme.S3).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return rowBody(gtx, th, v, w, now)
-					})
-				})(gtx)
-			})
-		})
-	}
-}
-
-func rowBody(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time) layout.Dimensions {
-	frac := float32(-1)
-	if v.Percent >= 0 {
-		frac = float32(v.Percent / 100)
-	}
-	gap := layout.Rigid(layout.Spacer{Height: theme.S1}.Layout)
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-				layout.Rigid(background(th.SurfaceSunken, theme.RadiusControl, func(gtx layout.Context) layout.Dimensions {
-					return layout.UniformInset(theme.S1).Layout(gtx, label(th, theme.Caption, th.TextMuted, fileGlyph(v.FileName)).Layout)
-				})),
-				layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
-				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					w.ShownName = fitName(v.FileName, runeBudget(gtx, gtx.Constraints.Max.X))
-					l := label(th, theme.Body, th.Text, w.ShownName)
-					l.Font.Weight = font.Medium
-					return l.Layout(gtx)
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return rowButtons(gtx, th, v, w) }),
-			)
-		}),
-		gap,
-		layout.Rigid(label(th, theme.Caption, statusColor(th, v), state.StatusText(v, now)).Layout),
-		gap,
-		layout.Rigid(ProgressBar(th, &w.Progress, frac, theme.StateColor(th.Palette, v.State, v.Interrupted))),
-		gap,
-		layout.Rigid(label(th, theme.Caption, th.TextMuted, rowMeta(v)).Layout),
+	out = append(out,
+		MenuItem{Key: "folder", Label: "Show in folder", Icon: icons.Folder},
+		MenuItem{Key: "copy-url", Label: "Copy link", Icon: icons.Copy},
+		MenuItem{Key: "copy-path", Label: "Copy path", Icon: icons.Copy},
 	)
-}
-
-func rowButtons(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidgets) layout.Dimensions {
-	ok := map[string]bool{"pause": v.CanPause, "resume": v.CanResume, "retry": v.CanRetry,
-		"restart": v.CanRestart, "open": v.CanOpen, "cancel": v.CanCancel, "menu": true}
-	var children []layout.FlexChild
-	for _, b := range rowButtonSpecs(w) {
-		if !ok[b.name] {
-			continue
-		}
-		w.Shown = append(w.Shown, b.name)
-		children = append(children, layout.Rigid(IconButton(th, b.c, b.icon, b.desc)))
+	if v.CanRestart {
+		out = append(out, MenuItem{Key: "restart", Label: "Restart", Icon: icons.Restart})
 	}
-	return layout.Flex{Alignment: layout.Middle}.Layout(gtx, children...)
+	if v.CanCancel {
+		out = append(out, MenuItem{Key: "cancel", Label: "Cancel", Icon: icons.Close})
+	}
+	return append(out, MenuItem{Key: "remove", Label: "Remove…", Icon: icons.Trash, Danger: true})
 }
 
 type rowButton struct {
@@ -150,35 +77,262 @@ type rowButton struct {
 	c          *widget.Clickable
 }
 
-func rowButtonSpecs(w *RowWidgets) []rowButton {
-	return []rowButton{
-		{"pause", "Pause download", icons.Pause, &w.Pause},
-		{"resume", "Resume download", icons.Play, &w.Resume},
-		{"retry", "Retry download", icons.Retry, &w.Retry},
-		{"restart", "Restart download", icons.Restart, &w.Restart},
-		{"open", "Open file", icons.File, &w.Open},
-		{"cancel", "Cancel download", icons.Close, &w.Cancel},
-		{"menu", "More actions", icons.More, &w.Menu},
+// primaryAction is the one always-visible state action of v (nil if none).
+func primaryAction(v state.TaskView, w *RowWidgets) *rowButton {
+	switch {
+	case v.CanPause:
+		return &rowButton{"pause", "Pause download", icons.Pause, &w.Pause}
+	case v.CanResume:
+		return &rowButton{"resume", "Resume download", icons.Play, &w.Resume}
+	case v.CanRetry:
+		return &rowButton{"retry", "Retry download", icons.Retry, &w.Retry}
+	case v.CanOpen:
+		return &rowButton{"open", "Open file", icons.File, &w.Open}
+	}
+	return nil
+}
+
+// transferring reports whether v is actively moving bytes (or about to).
+func transferring(v state.TaskView) bool {
+	switch v.State {
+	case domain.StateDownloading, domain.StateInspecting, domain.StateVerifying:
+		return !v.Interrupted
+	}
+	return false
+}
+
+// rowFrac is the progress fraction to draw: indeterminate (-1) only for an
+// actively transferring task of unknown size; idle tasks get a static bar.
+func rowFrac(v state.TaskView) float32 {
+	if v.Percent >= 0 {
+		return float32(min(v.Percent, 100) / 100)
+	}
+	if transferring(v) {
+		return -1
+	}
+	return 0
+}
+
+// metaSlots builds the numeric parts of the meta line (after the status).
+func metaSlots(v state.TaskView) []string {
+	var out []string
+	done := max(v.Downloaded, 0)
+	switch {
+	case v.State == domain.StateCompleted:
+		out = append(out, platform.FormatBytes(max(done, v.Total)))
+	case v.State == domain.StateFailed || v.State == domain.StateCancelled:
+	case v.TotalKnown && v.Total > 0:
+		out = append(out, platform.FormatBytes(done)+" of "+platform.FormatBytes(v.Total))
+	case done > 0:
+		out = append(out, platform.FormatBytes(done))
+	}
+	if transferring(v) || v.State == domain.StateRetrying {
+		if v.SpeedBps > 0 && v.State != domain.StateRetrying {
+			out = append(out, platform.FormatSpeed(v.SpeedBps))
+		}
+		if v.ETA != nil && *v.ETA >= 0 && v.State == domain.StateDownloading {
+			out = append(out, platform.FormatETA(*v.ETA)+" left")
+		}
+	}
+	return out
+}
+
+// TaskRow renders one 56-dp task row: file tile, name, meta line with state
+// dot, eased progress and trailing actions (primary always; more on hover,
+// selection or focus).
+func TaskRow(th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time, selected bool) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		w.Shown = w.Shown[:0]
+		h := gtx.Dp(rowHeight)
+		gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, h))
+		return FocusRing(gtx, th, &w.Select, theme.RadiusRow, func(gtx layout.Context) layout.Dimensions {
+			return w.Select.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				pointer.CursorPointer.Add(gtx.Ops)
+				hovered := w.Hover.Update(gtx.Source) || w.Select.Hovered()
+				w.Hover.Add(gtx.Ops)
+				focused := gtx.Focused(&w.Select) || gtx.Focused(&w.More) || w.Menu.Open
+				for _, c := range []*widget.Clickable{&w.Pause, &w.Resume, &w.Retry, &w.Open} {
+					focused = focused || gtx.Focused(c)
+				}
+				w.hot.Set(b2f(hovered))
+				w.sel.Set(b2f(selected))
+				hot, sel := w.hot.Get(gtx), w.sel.Get(gtx)
+				sz := gtx.Constraints.Min
+				rowBg(gtx, th, sz, hot, sel)
+				showMore := hovered || selected || focused
+				return layout.Inset{Left: theme.S3, Right: theme.S3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return rowBody(gtx, th, v, w, now, showMore)
+				})
+			})
+		})
 	}
 }
 
-// runeBudget conservatively estimates how many Body runes fit in px
-// (average Go font advance is about 0.55em; 0.6em leaves headroom).
-func runeBudget(gtx layout.Context, px int) int {
-	per := float32(gtx.Sp(theme.Body)) * 0.6
-	if per <= 0 {
-		return 8
+// rowBg paints the hover (SurfaceSunken @ 60 %) and selection (AccentSoft
+// plus a 2-dp accent bar) backgrounds, eased.
+func rowBg(gtx layout.Context, th *theme.Theme, sz image.Point, hot, sel float32) {
+	if hot > 0 {
+		c := th.SurfaceSunken
+		fillRRect(gtx, theme.WithAlpha(c, uint8(float32(c.A)*0.6*hot)), sz, theme.RadiusRow)
 	}
-	return max(8, int(float32(px)/per))
+	if sel > 0 {
+		c := th.AccentSoft
+		fillRRect(gtx, theme.WithAlpha(c, uint8(float32(c.A)*sel)), sz, theme.RadiusRow)
+		bar := image.Rect(0, gtx.Dp(theme.S3), gtx.Dp(2), sz.Y-gtx.Dp(theme.S3))
+		a := th.Accent
+		paint.FillShape(gtx.Ops, theme.WithAlpha(a, uint8(float32(a.A)*sel)), clip.UniformRRect(bar, gtx.Dp(1)).Op(gtx.Ops))
+	}
 }
 
-// fitName middle-ellipsizes name to n runes, always keeping its extension
-// (including compound ones such as .tar.gz) visible.
-func fitName(name string, n int) string {
-	r := []rune(name)
-	if len(r) <= n {
+func rowBody(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time, showMore bool) layout.Dimensions {
+	rowW := gtx.Constraints.Max.X + gtx.Dp(theme.S3)*2
+	box := gtx.Dp(actionBox)
+	// The more button's slot is the right-most one; its bottom-right corner
+	// anchors the overflow menu.
+	w.MoreAt = image.Pt(rowW-gtx.Dp(theme.S3), gtx.Dp(rowHeight)/2+box/2)
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return fileTile(gtx, th, v.FileName) }),
+		layout.Rigid(layout.Spacer{Width: theme.S3}.Layout),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			w.NameWidth = gtx.Constraints.Max.X
+			return textColumn(gtx, th, v, w, now)
+		}),
+		layout.Rigid(layout.Spacer{Width: theme.S3}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return trailing(gtx, th, v, w, showMore)
+		}),
+	)
+}
+
+func fileTile(gtx layout.Context, th *theme.Theme, name string) layout.Dimensions {
+	gtx = fixed(gtx, tileSize, tileSize)
+	fillRRect(gtx, th.SurfaceSunken, gtx.Constraints.Min, theme.RadiusRow)
+	layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return icons.ForFile(name)(gtx, 16, th.TextMuted)
+	})
+	return layout.Dimensions{Size: gtx.Constraints.Min}
+}
+
+func textColumn(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time) layout.Dimensions {
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	gtx.Constraints.Min.Y = 0
+	name := styled(th, theme.StyleBodyStrong, th.Text, "")
+	w.ShownName = fitName(v.FileName, func(s string) bool {
+		name.Text = s
+		return measure(gtx, name) <= gtx.Constraints.Max.X
+	})
+	name.Text = w.ShownName
+	col := theme.StateColor(th.Palette, v.State, v.Interrupted)
+	frac := rowFrac(v)
+	bar := v.State != domain.StateCompleted && !(frac == 0 && max(v.Downloaded, 0) == 0)
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(name.Layout),
+		layout.Rigid(layout.Spacer{Height: theme.S0}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return metaLine(gtx, th, v, now, col) }),
+		layout.Rigid(layout.Spacer{Height: 5}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			// The bar's space is always reserved so rows align.
+			if !bar {
+				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(3))}
+			}
+			return ProgressBar(th, &w.Progress, frac, col)(gtx)
+		}),
+	)
+}
+
+// metaLine draws "● Status · 412 MB of 1.2 GB · 8.4 MB/s · 1 min left".
+// Each numeric slot is as wide as its text with every digit replaced by
+// "0", so changing values do not shift the slots that follow.
+func metaLine(gtx layout.Context, th *theme.Theme, v state.TaskView, now time.Time, dot color.NRGBA) layout.Dimensions {
+	stCol := th.TextMuted
+	if v.State == domain.StateFailed {
+		stCol = th.Error
+	}
+	children := []layout.FlexChild{
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			d := gtx.Dp(6)
+			sz := image.Pt(d+gtx.Dp(6), d)
+			paint.FillShape(gtx.Ops, dot, clip.Ellipse{Max: image.Pt(d, d)}.Op(gtx.Ops))
+			return layout.Dimensions{Size: sz}
+		}),
+		layout.Rigid(styled(th, theme.StyleCaption, stCol, state.StatusText(v, now)).Layout),
+	}
+	for _, s := range metaSlots(v) {
+		s := metaSep + s
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			l := styled(th, theme.StyleCaption, th.TextMuted, s)
+			gtx.Constraints.Min.X = min(measure(gtx, styled(th, theme.StyleCaption, th.TextMuted, zeroDigits(s))), gtx.Constraints.Max.X)
+			return l.Layout(gtx)
+		}))
+	}
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx, children...)
+}
+
+func trailing(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidgets, showMore bool) layout.Dimensions {
+	box := gtx.Dp(actionBox)
+	slot := func(b *rowButton) layout.FlexChild {
+		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			if b == nil {
+				return layout.Dimensions{Size: image.Pt(box, box)}
+			}
+			w.Shown = append(w.Shown, b.name)
+			return IconButton(th, b.c, b.icon, b.desc)(gtx)
+		})
+	}
+	var more *rowButton
+	if showMore {
+		more = &rowButton{"menu", "More actions", icons.More, &w.More}
+	}
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		slot(primaryAction(v, w)),
+		layout.Rigid(layout.Spacer{Width: theme.S1}.Layout),
+		slot(more),
+	)
+}
+
+// measure returns the laid-out width of l without drawing it.
+func measure(gtx layout.Context, l interface {
+	Layout(layout.Context) layout.Dimensions
+}) int {
+	m := op.Record(gtx.Ops)
+	gtx.Constraints = layout.Constraints{Max: image.Pt(1<<20, 1<<20)}
+	d := l.Layout(gtx)
+	m.Stop()
+	return d.Size.X
+}
+
+// zeroDigits replaces every digit of s with '0'.
+func zeroDigits(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return '0'
+		}
+		return r
+	}, s)
+}
+
+// fitName middle-ellipsizes name to the longest form fits accepts, always
+// keeping its extension (including compound ones such as .tar.gz) visible.
+// fits measures with the real shaper, so no per-font advance guess is needed.
+func fitName(name string, fits func(string) bool) string {
+	if fits(name) {
 		return name
 	}
+	lo, hi := 4, len([]rune(name))-1
+	best := shorten(name, lo)
+	for lo <= hi {
+		mid := (lo + hi) / 2
+		if s := shorten(name, mid); fits(s) {
+			best, lo = s, mid+1
+		} else {
+			hi = mid - 1
+		}
+	}
+	return best
+}
+
+// shorten middle-ellipsizes name to n runes, keeping the extension.
+func shorten(name string, n int) string {
 	ext := filepath.Ext(name)
 	if stem := strings.TrimSuffix(name, ext); strings.EqualFold(filepath.Ext(stem), ".tar") {
 		ext = filepath.Ext(stem) + ext

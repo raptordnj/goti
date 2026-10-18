@@ -39,11 +39,6 @@ const (
 
 var sectionTitles = [state.NumSections]string{"Active", "Queued", "Paused", "Completed", "Failed"}
 
-// rowMenu is the overflow menu of one row.
-type rowMenu struct {
-	openFile, openFolder, copyURL, copyPath, remove widget.Clickable
-}
-
 // Main is the main screen: header, offline banner, sectioned task list,
 // details pane/sheet and toasts.
 type Main struct {
@@ -53,12 +48,17 @@ type Main struct {
 	ShownSections []state.Section
 	// DetailsMode records how details were laid out last frame.
 	DetailsMode DetailsMode
+	// ShownTasks lists the task rows laid out last frame (collapsed
+	// sections omit theirs).
+	ShownTasks []string
 
 	add, pauseAll, settings widget.Clickable
 	list                    widget.List
 	rows                    map[string]*components.RowWidgets
-	menuFor                 string
-	menu                    rowMenu
+	menuFor                 string // task whose overflow menu is open
+	collapsed               [state.NumSections]widget.Bool
+	listTop                 int   // window y of the task list (px)
+	itemH                   []int // heights of list items laid out last frame
 	details                 Details
 	dismiss                 []widget.Clickable
 	toastFades              components.ToastFades
@@ -75,6 +75,33 @@ func (m *Main) Row(id string) *components.RowWidgets {
 		m.rows[id] = w
 	}
 	return w
+}
+
+// Collapsible returns the collapse toggle of sec (nil when the section is
+// not collapsible: only Completed and Failed are).
+func (m *Main) Collapsible(sec state.Section) *widget.Bool {
+	if sec == state.SectionCompleted || sec == state.SectionFailed {
+		return &m.collapsed[sec]
+	}
+	return nil
+}
+
+// MenuOpen reports whether a row's overflow menu is open (it then owns Esc
+// and the arrow keys).
+func (m *Main) MenuOpen() bool {
+	if m.menuFor == "" {
+		return false
+	}
+	w := m.rows[m.menuFor]
+	return w != nil && w.Menu.Open
+}
+
+// CloseMenu closes any open overflow menu.
+func (m *Main) CloseMenu() {
+	if w := m.rows[m.menuFor]; w != nil {
+		w.Menu.Open = false
+	}
+	m.menuFor = ""
 }
 
 // Layout draws the main screen and returns the user's intents.
@@ -96,18 +123,27 @@ func (m *Main) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot,
 
 	paint.Fill(gtx.Ops, th.Bg)
 	m.ShownSections = m.ShownSections[:0]
+	m.ShownTasks = m.ShownTasks[:0]
+	m.listTop = -1
+	top := 0
 	layout.Stack{Alignment: layout.SE}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return m.header(gtx, th, snap) }),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					d := m.header(gtx, th, snap)
+					top = d.Size.Y
+					return d
+				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					if !snap.Offline {
 						return layout.Dimensions{}
 					}
-					return offlineBanner(th)(gtx)
+					d := offlineBanner(th)(gtx)
+					top += d.Size.Y
+					return d
 				}),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return m.body(gtx, th, snap, now, emit)
+					return m.body(gtx, th, snap, now, emit, top)
 				}),
 			)
 		}),
@@ -118,22 +154,96 @@ func (m *Main) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot,
 			return layout.UniformInset(theme.S4).Layout(gtx, components.ToastStack(th, &m.toastFades, snap.Toasts, m.dismiss))
 		}),
 	)
+	m.layoutMenu(gtx, th, snap, emit)
 	return out
 }
 
-func (m *Main) selectedView(snap *state.Snapshot) *state.TaskView {
-	if m.Selected == "" {
-		return nil
+// layoutMenu draws the open row menu over the window, anchored to the row's
+// more button, and turns a pick into an intent (re-checking CanX).
+func (m *Main) layoutMenu(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, emit func(Intent)) {
+	if m.menuFor == "" {
+		return
 	}
+	w := m.rows[m.menuFor]
+	v := m.findTask(snap, m.menuFor)
+	y, visible := m.rowY(snap, m.menuFor)
+	if w == nil || v == nil || !visible {
+		m.CloseMenu()
+		return
+	}
+	w.Menu.SetItems(components.RowMenuItems(*v))
+	w.Menu.Anchor = image.Pt(gtx.Dp(theme.S4)+w.MoreAt.X, y+w.MoreAt.Y)
+	picked := w.Menu.Layout(gtx, th)
+	if !w.Menu.Open {
+		m.menuFor = ""
+	}
+	if picked != "" {
+		menuIntent(picked, *v, emit)
+	}
+}
+
+// menuIntent maps a picked menu key to its intent, honouring CanX.
+func menuIntent(key string, v state.TaskView, emit func(Intent)) {
+	switch key {
+	case "open":
+		if v.CanOpen {
+			emit(IntentOpen{Path: v.DestPath})
+		}
+	case "folder":
+		emit(IntentOpen{Path: v.DestPath, Reveal: true})
+	case "copy-url":
+		emit(IntentCopy{Text: v.URL})
+	case "copy-path":
+		emit(IntentCopy{Text: v.DestPath})
+	case "restart":
+		if v.CanRestart {
+			emit(IntentCommand{Cmd: app.RestartTask{ID: v.ID}})
+		}
+	case "cancel":
+		if v.CanCancel {
+			emit(IntentConfirm{Kind: ConfirmCancel, ID: v.ID})
+		}
+	case "remove":
+		emit(IntentConfirm{Kind: ConfirmRemove, ID: v.ID})
+	}
+}
+
+func (m *Main) findTask(snap *state.Snapshot, id string) *state.TaskView {
 	for i := range snap.Tasks {
-		if snap.Tasks[i].ID == m.Selected {
+		if snap.Tasks[i].ID == id {
 			return &snap.Tasks[i]
 		}
 	}
 	return nil
 }
 
-func (m *Main) body(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time, emit func(Intent)) layout.Dimensions {
+// rowY returns the window y of task id's row from last layout's list
+// position and item heights; false when it is not on screen.
+func (m *Main) rowY(snap *state.Snapshot, id string) (int, bool) {
+	if m.listTop < 0 {
+		return 0, false
+	}
+	items := m.items(snap)
+	pos := m.list.Position
+	y := m.listTop - pos.Offset
+	for i := pos.First; i < len(items) && i < len(m.itemH); i++ {
+		it := items[i]
+		if !it.header && snap.Tasks[it.task].ID == id {
+			return y, true
+		}
+		y += m.itemH[i]
+	}
+	return 0, false
+}
+
+func (m *Main) selectedView(snap *state.Snapshot) *state.TaskView {
+	if m.Selected == "" {
+		return nil
+	}
+	return m.findTask(snap, m.Selected)
+}
+
+func (m *Main) body(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time, emit func(Intent), top int) layout.Dimensions {
 	switch m.DetailsMode {
 	case DetailsSheet:
 		for _, i := range m.details.Layout(gtx, th, snap, now) {
@@ -142,7 +252,7 @@ func (m *Main) body(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, n
 		return layout.Dimensions{Size: gtx.Constraints.Max}
 	case DetailsPane:
 		return layout.Flex{}.Layout(gtx,
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return m.taskList(gtx, th, snap, now) }),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return m.taskList(gtx, th, snap, now, top) }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints = layout.Exact(image.Pt(gtx.Dp(detailsPaneWidth), gtx.Constraints.Max.Y))
 				for _, i := range m.details.Layout(gtx, th, snap, now) {
@@ -152,7 +262,7 @@ func (m *Main) body(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, n
 			}),
 		)
 	}
-	return m.taskList(gtx, th, snap, now)
+	return m.taskList(gtx, th, snap, now, top)
 }
 
 // handleDetails forwards details intents, clearing the selection on close.
@@ -198,12 +308,15 @@ func (m *Main) items(snap *state.Snapshot) []listItem {
 			out = append(out, listItem{header: true, sec: v.Section})
 			last = v.Section
 		}
+		if c := m.Collapsible(v.Section); c != nil && c.Value {
+			continue
+		}
 		out = append(out, listItem{sec: v.Section, task: i})
 	}
 	return out
 }
 
-func (m *Main) taskList(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time) layout.Dimensions {
+func (m *Main) taskList(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time, top int) layout.Dimensions {
 	if len(snap.Tasks) == 0 {
 		return emptyState(th, &m.add)(gtx)
 	}
@@ -211,43 +324,35 @@ func (m *Main) taskList(gtx layout.Context, th *theme.Theme, snap *state.Snapsho
 	for _, it := range items {
 		if it.header {
 			m.ShownSections = append(m.ShownSections, it.sec)
+		} else {
+			m.ShownTasks = append(m.ShownTasks, snap.Tasks[it.task].ID)
 		}
 	}
+	m.listTop = top
+	if cap(m.itemH) < len(items) {
+		m.itemH = make([]int, len(items))
+	}
+	m.itemH = m.itemH[:len(items)]
 	m.list.Axis = layout.Vertical
 	return layout.Inset{Left: theme.S4, Right: theme.S4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return m.list.Layout(gtx, len(items), func(gtx layout.Context, i int) layout.Dimensions {
-			it := items[i]
-			if it.header {
-				return components.SectionHeader(th, sectionTitles[it.sec], snap.Counts[it.sec])(gtx)
-			}
-			v := snap.Tasks[it.task]
-			return layout.Inset{Bottom: theme.S2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(components.TaskRow(th, v, m.Row(v.ID), now)),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						if m.menuFor != v.ID {
-							return layout.Dimensions{}
-						}
-						return m.menuStrip(gtx, th, v)
-					}),
-				)
-			})
+			d := m.listItem(gtx, th, snap, now, items[i], i == 0)
+			m.itemH[i] = d.Size.Y
+			return d
 		})
 	})
 }
 
-func (m *Main) menuStrip(gtx layout.Context, th *theme.Theme, v state.TaskView) layout.Dimensions {
-	ws := []layout.Widget{}
-	if v.CanOpen {
-		ws = append(ws, components.Button(th, &m.menu.openFile, "Open file", components.Ghost))
+func (m *Main) listItem(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time, it listItem, first bool) layout.Dimensions {
+	if it.header {
+		in := layout.Inset{Top: theme.S3}
+		if first {
+			in.Top = theme.S1
+		}
+		return in.Layout(gtx, components.SectionHeader(th, sectionTitles[it.sec], snap.Counts[it.sec], m.Collapsible(it.sec)))
 	}
-	ws = append(ws,
-		components.Button(th, &m.menu.openFolder, "Open folder", components.Ghost),
-		components.Button(th, &m.menu.copyURL, "Copy URL", components.Ghost),
-		components.Button(th, &m.menu.copyPath, "Copy path", components.Ghost),
-		components.Button(th, &m.menu.remove, "Remove…", components.Danger),
-	)
-	return layout.Inset{Top: theme.S1, Left: theme.S3}.Layout(gtx, Row(ws...))
+	v := snap.Tasks[it.task]
+	return layout.Inset{Bottom: theme.S0}.Layout(gtx, components.TaskRow(th, v, m.Row(v.ID), now, v.ID == m.Selected))
 }
 
 // events converts last frame's clicks into intents.
@@ -295,10 +400,6 @@ func (m *Main) rowEvents(gtx layout.Context, v state.TaskView, emit func(Intent)
 	cmd(&w.Pause, v.CanPause, func() app.Command { return app.PauseTask{ID: v.ID} })
 	cmd(&w.Resume, v.CanResume, func() app.Command { return app.ResumeTask{ID: v.ID} })
 	cmd(&w.Retry, v.CanRetry, func() app.Command { return app.RetryTask{ID: v.ID} })
-	cmd(&w.Restart, v.CanRestart, func() app.Command { return app.RestartTask{ID: v.ID} })
-	if w.Cancel.Clicked(gtx) && v.CanCancel {
-		emit(IntentConfirm{Kind: ConfirmCancel, ID: v.ID})
-	}
 	if w.Open.Clicked(gtx) && v.CanOpen {
 		emit(IntentOpen{Path: v.DestPath})
 	}
@@ -306,32 +407,16 @@ func (m *Main) rowEvents(gtx layout.Context, v state.TaskView, emit func(Intent)
 		m.Selected = v.ID
 		emit(IntentSelect{ID: v.ID})
 	}
-	if w.Menu.Clicked(gtx) {
-		if m.menuFor == v.ID {
-			m.menuFor = ""
+	if w.More.Clicked(gtx) {
+		if m.menuFor == v.ID && w.Menu.Open {
+			m.CloseMenu()
 		} else {
+			m.CloseMenu()
 			m.menuFor = v.ID
+			w.Menu.SetItems(components.RowMenuItems(v))
+			w.Menu.Open = true
 		}
 	}
-	if m.menuFor != v.ID {
-		return
-	}
-	mu := &m.menu
-	switch {
-	case mu.openFile.Clicked(gtx) && v.CanOpen:
-		emit(IntentOpen{Path: v.DestPath})
-	case mu.openFolder.Clicked(gtx):
-		emit(IntentOpen{Path: v.DestPath, Reveal: true})
-	case mu.copyURL.Clicked(gtx):
-		emit(IntentCopy{Text: v.URL})
-	case mu.copyPath.Clicked(gtx):
-		emit(IntentCopy{Text: v.DestPath})
-	case mu.remove.Clicked(gtx):
-		emit(IntentConfirm{Kind: ConfirmRemove, ID: v.ID})
-	default:
-		return
-	}
-	m.menuFor = ""
 }
 
 // fill paints c over the minimum constraints and returns that size.

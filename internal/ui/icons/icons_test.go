@@ -18,7 +18,7 @@ func all() map[string]Icon {
 		"Video": Video, "Audio": Audio, "Image": Image, "Doc": Doc, "Disk": Disk,
 		"More": More, "Settings": Settings, "Check": Check, "Alert": Alert,
 		"WifiOff": WifiOff, "ArrowDown": ArrowDown, "ChevronRight": ChevronRight,
-		"ChevronDown": ChevronDown,
+		"ChevronDown": ChevronDown, "Copy": Copy, "Trash": Trash,
 	}
 }
 

@@ -102,7 +102,8 @@ func keyFilters(inText, buttonFocused bool) []event.Filter {
 func (c *controller) keyEvents(gtx layout.Context, snap *state.Snapshot) []screens.Intent {
 	inText, anyFocus := c.focus(gtx)
 	kc := KeyContext{Tasks: snap.Tasks, Selected: c.main.Selected, DialogOpen: c.dialog != dialogNone,
-		SettingsOpen: c.settingsOpen, InText: inText, ButtonFocused: anyFocus && !inText}
+		SettingsOpen: c.settingsOpen, InText: inText, ButtonFocused: anyFocus && !inText,
+		MenuOpen: !c.settingsOpen && c.main.MenuOpen()}
 	filters := keyFilters(kc.InText, kc.ButtonFocused)
 	var out []screens.Intent
 	for {
@@ -111,6 +112,9 @@ func (c *controller) keyEvents(gtx layout.Context, snap *state.Snapshot) []scree
 			return out
 		}
 		if ke, ok := ev.(key.Event); ok {
+			if kc.MenuOpen && ke.Name == key.NameEscape && ke.State == key.Press {
+				c.main.CloseMenu() // whichever handler got Esc, it closes only the menu
+			}
 			if in := Shortcut(ke, kc); in != nil {
 				out = append(out, in)
 			}
