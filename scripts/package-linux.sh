@@ -6,6 +6,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 VERSION=${1:?usage: package-linux.sh VERSION ARCH}
 ARCH=${2:?usage: package-linux.sh VERSION ARCH}
+case $ARCH in
+amd64 | arm64) ;;
+*)
+	echo "package-linux.sh: unsupported ARCH '$ARCH' (want amd64 or arm64)" >&2
+	exit 2
+	;;
+esac
 NFPM=github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.48.0
 
 dist=$PWD/dist
@@ -16,7 +23,7 @@ ldflags="-s -w -X main.version=$VERSION"
 CGO_ENABLED=1 GOOS=linux GOARCH=$ARCH go build -trimpath -ldflags "$ldflags" -o "$stage/goti" ./cmd/goti
 CGO_ENABLED=0 GOOS=linux GOARCH=$ARCH go build -trimpath -ldflags "$ldflags" -o "$stage/goti-cli" ./cmd/goti-cli
 cp packaging/linux/goti.desktop "$stage/"
-sed -e "s/@VERSION@/$VERSION/" -e "s/@DATE@/$(date -u +%F)/" \
+sed -e "s|@VERSION@|$VERSION|" -e "s|@DATE@|$(date -u +%F)|" \
 	packaging/linux/io.github.raptordnj.Goti.metainfo.xml >"$stage/io.github.raptordnj.Goti.metainfo.xml"
 
 export VERSION ARCH
@@ -41,6 +48,7 @@ tar_root=$dist/tar/$base
 rm -rf "$dist/tar"
 mkdir -p "$tar_root/icons"
 cp "$stage"/{goti,goti-cli,goti.desktop,io.github.raptordnj.Goti.metainfo.xml} "$tar_root/"
+cp LICENSE "$tar_root/"
 cp packaging/icons/goti-{16,32,48,64,128,256,512}.png "$tar_root/icons/"
 [ -f scripts/install-linux.sh ] && cp scripts/install-linux.sh "$tar_root/"
 tar -C "$dist/tar" -czf "$dist/$base.tar.gz" "$base"

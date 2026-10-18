@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>io.github.raptordnj.Goti</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>LicenseRef-proprietary</project_license>
+  <project_license>MIT</project_license>
   <name>Goti</name>
   <summary>Fast by design. Reliable by nature.</summary>
   <description>

@@ -312,3 +312,7 @@ Memory (same machine, from `go test ./tests/integration -run 'TestMemoryBound|Te
   baseline (bound 4 MiB).
 - CLI, 256 MiB, 8 throttled connections: idle RSS 13.6 MiB (bound 20 MiB),
   peak RSS 22.1 MiB (bound 40 MiB).
+
+## License
+
+Goti is released under the [MIT License](LICENSE).

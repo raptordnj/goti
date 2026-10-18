@@ -4,3 +4,4 @@ coverage.out
 .superpowers/
 /goti-cli
 /dist/
+/cmd/goti/rsrc_windows_*.syso

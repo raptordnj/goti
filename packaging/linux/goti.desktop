@@ -3,6 +3,7 @@ Type=Application
 Name=Goti
 GenericName=Download Manager
 Comment=Fast by design. Reliable by nature.
+# No %U/%F: Goti registers no URL or file handler, so it takes no launch arguments.
 Exec=goti
 Icon=goti
 Terminal=false

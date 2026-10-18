@@ -13,8 +13,10 @@ description: |
   command-line client (goti-cli).
 vendor: Goti
 homepage: https://github.com/raptordnj/goti
-license: Proprietary
+license: MIT
 contents:
+  - src: LICENSE
+    dst: /usr/share/licenses/goti/LICENSE
   - src: dist/stage/goti
     dst: /usr/bin/goti
     file_info: {mode: 0755}

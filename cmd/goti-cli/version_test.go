@@ -10,7 +10,7 @@ import (
 func TestVersionFlag(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "goti-cli")
 	build := exec.Command("go", "build", "-ldflags", "-X main.version=1.2.3", "-o", bin, ".")
-	build.Env = append(os.Environ(), "CGO_ENABLED=1")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
