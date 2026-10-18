@@ -40,6 +40,10 @@ const (
 // ErrAlreadyRunning is returned by Run while another Run of the task is active.
 var ErrAlreadyRunning = errors.New("task already running")
 
+// ErrLockedElsewhere is wrapped by the error lockTask returns when another
+// process holds the task's cross-process lock.
+var ErrLockedElsewhere = errors.New("task is locked by another process")
+
 // errTaskCompleted is returned by Cancel for a task that already completed.
 var errTaskCompleted = domain.NewError(domain.KindPermanent, "task already completed", "remove it instead", nil)
 
@@ -78,6 +82,8 @@ type taskSettings struct {
 	Connections  int   `json:"connections,omitempty"`
 	RateLimit    int64 `json:"rate_limit,omitempty"`
 	Conservative bool  `json:"conservative,omitempty"`
+	// RestartOnChange lets a run restart from zero when the remote file changed.
+	RestartOnChange bool `json:"restart_on_change,omitempty"`
 }
 
 // apply returns cfg with the per-task overrides applied.
@@ -90,6 +96,9 @@ func (s taskSettings) apply(cfg config.Config) config.Config {
 	}
 	if s.Conservative {
 		cfg.ConservativeMode = true
+	}
+	if s.RestartOnChange {
+		cfg.RestartOnRemoteChange = true
 	}
 	return cfg
 }
@@ -111,6 +120,8 @@ type Engine struct {
 	bufPool *sync.Pool // *[]byte of bufSize, shared by all runs and hashing
 
 	mu       sync.Mutex
+	cfgMu    sync.RWMutex  // separate from mu: lockTask reads config under mu
+	cfg      config.Config // live config; replaced by SetConfig
 	running  map[string]*runHandle
 	shutting bool
 }
@@ -135,7 +146,7 @@ func NewEngine(d EngineDeps) *Engine {
 			})
 		}
 	}
-	return &Engine{d: d, bufPool: newBufPool(), running: map[string]*runHandle{}}
+	return &Engine{d: d, cfg: d.Config, bufPool: newBufPool(), running: map[string]*runHandle{}}
 }
 
 func (e *Engine) publish(ev events.Event) {
@@ -147,7 +158,7 @@ func (e *Engine) publish(ev events.Event) {
 // Add validates r, checks that the destination directory is writable and
 // persists a queued task.
 func (e *Engine) Add(ctx context.Context, r AddRequest) (*domain.Task, error) {
-	cfg := e.d.Config
+	cfg := e.config()
 	if _, err := parseURL(r.URL); err != nil {
 		return nil, err
 	}
@@ -248,6 +259,84 @@ func newTaskID() string {
 	return hex.EncodeToString(b[:])
 }
 
+// config returns the current engine configuration.
+func (e *Engine) config() config.Config {
+	e.cfgMu.RLock()
+	defer e.cfgMu.RUnlock()
+	return e.cfg
+}
+
+// SetConfig replaces the configuration used by runs started afterwards; a
+// run already in progress keeps the config it started with.
+func (e *Engine) SetConfig(cfg config.Config) {
+	e.cfgMu.Lock()
+	e.cfg = cfg
+	e.cfgMu.Unlock()
+}
+
+// Running reports whether a Run of id is currently active.
+func (e *Engine) Running(id string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	h, ok := e.running[id]
+	return ok && h.cancel != nil
+}
+
+// idle runs fn on task id while holding the run guard, so no Run can start
+// meanwhile. It returns ErrAlreadyRunning if the guard is held.
+func (e *Engine) idle(ctx context.Context, id string, fn func(r *taskRun) error) error {
+	h, err := e.acquire(id, nil)
+	if err != nil {
+		return err
+	}
+	defer e.release(id, h)
+	t, err := e.d.Store.GetTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	return fn(newTaskRun(e, t))
+}
+
+// Hold moves a queued task to paused so a scheduler will not start it. A
+// paused task is left unchanged; a running task yields ErrAlreadyRunning.
+func (e *Engine) Hold(ctx context.Context, id string) error {
+	return e.idle(ctx, id, func(r *taskRun) error {
+		if r.t.State == domain.StatePaused {
+			return nil
+		}
+		return r.setState(ctx, domain.StatePaused, "held")
+	})
+}
+
+// Requeue moves a paused or failed task to queued. A queued task, or one
+// left in a crash-interrupted state with no live run, is returned unchanged.
+func (e *Engine) Requeue(ctx context.Context, id string) error {
+	return e.idle(ctx, id, func(r *taskRun) error {
+		switch r.t.State {
+		case domain.StateQueued, domain.StateInspecting, domain.StateDownloading,
+			domain.StateRetrying, domain.StateVerifying:
+			return nil
+		}
+		return r.setState(ctx, domain.StateQueued, "requeued")
+	})
+}
+
+// AllowRestart marks the task so its next run restarts from zero instead of
+// failing when the remote file changed.
+func (e *Engine) AllowRestart(ctx context.Context, id string) error {
+	return e.idle(ctx, id, func(r *taskRun) error {
+		var s taskSettings
+		_ = json.Unmarshal(r.t.SettingsJSON, &s)
+		s.RestartOnChange = true
+		b, err := json.Marshal(s)
+		if err != nil {
+			return err
+		}
+		r.t.SettingsJSON = b
+		return r.persist(ctx)
+	})
+}
+
 // acquire takes the run guard for id. cancel is nil for guard holders that
 // are not runs.
 func (e *Engine) acquire(id string, cancel context.CancelCauseFunc) (*runHandle, error) {
@@ -272,17 +361,17 @@ func (e *Engine) acquire(id string, cancel context.CancelCauseFunc) (*runHandle,
 // process cannot drive or remove a task this one holds. Without a DataDir
 // only the in-process guard applies.
 func (e *Engine) lockTask(id string) (*storage.FileLock, error) {
-	if e.d.Config.DataDir == "" {
+	if e.config().DataDir == "" {
 		return nil, nil
 	}
-	dir := filepath.Join(e.d.Config.DataDir, "locks")
+	dir := filepath.Join(e.config().DataDir, "locks")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, domain.NewError(domain.KindLocal, "create lock directory: "+err.Error(), "check permissions of "+dir, err)
 	}
 	lock, err := storage.TryLock(e.lockPath(id))
 	if errors.Is(err, storage.ErrLocked) {
 		return nil, domain.NewError(domain.KindLocal, "task is running in another process",
-			"wait for it to finish or stop it there", err)
+			"wait for it to finish or stop it there", errors.Join(ErrLockedElsewhere, err))
 	}
 	if err != nil {
 		return nil, domain.NewError(domain.KindLocal, "lock task: "+err.Error(), "check permissions of "+dir, err)
@@ -291,7 +380,7 @@ func (e *Engine) lockTask(id string) (*storage.FileLock, error) {
 }
 
 func (e *Engine) lockPath(id string) string {
-	return filepath.Join(e.d.Config.DataDir, "locks", id+".lock")
+	return filepath.Join(e.config().DataDir, "locks", id+".lock")
 }
 
 func (e *Engine) release(id string, h *runHandle) {
@@ -452,7 +541,7 @@ func (e *Engine) Explain(ctx context.Context, rawURL string, r AddRequest) (stra
 	if err != nil {
 		return strategy.Decision{}, strategy.Observations{}, err
 	}
-	cfg := taskSettings{Connections: r.Connections, RateLimit: r.RateLimit, Conservative: r.Conservative}.apply(e.d.Config)
+	cfg := taskSettings{Connections: r.Connections, RateLimit: r.RateLimit, Conservative: r.Conservative}.apply(e.config())
 	client, err := e.clientFor(ctx, u)
 	if err != nil {
 		return strategy.Decision{}, strategy.Observations{}, err

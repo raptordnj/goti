@@ -79,7 +79,7 @@ const (
 func newTaskRun(e *Engine, t *domain.Task) *taskRun {
 	var s taskSettings
 	_ = json.Unmarshal(t.SettingsJSON, &s)
-	cfg := s.apply(e.d.Config)
+	cfg := s.apply(e.config())
 	r := &taskRun{
 		e: e, t: t, cfg: cfg,
 		log:     e.d.Logger.With("task", t.ID),
