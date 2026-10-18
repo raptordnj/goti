@@ -1,0 +1,180 @@
+package screens
+
+import (
+	"reflect"
+	"slices"
+	"testing"
+
+	"gioui.org/layout"
+
+	"github.com/raptordnj/swiftfetch/internal/app"
+	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/swiftfetch/internal/settings"
+	"github.com/raptordnj/swiftfetch/internal/ui/state"
+)
+
+func TestMainEmptyState(t *testing.T) {
+	recordTexts(t)
+	var m Main
+	hs := newHarness(800, 600)
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, &state.Snapshot{}, now) })
+	for _, s := range []string{"No downloads yet", "Ctrl+V to paste a link"} {
+		if !hasText(t, s) {
+			t.Errorf("missing %q in %v", s, RecordedTexts())
+		}
+	}
+}
+
+func TestMainOfflineBanner(t *testing.T) {
+	recordTexts(t)
+	var m Main
+	hs := newHarness(800, 600)
+	s := snapOf(task("a", domain.StateRetrying, state.SectionActive))
+	s.Offline = true
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, s, now) })
+	if !hasText(t, OfflineText) {
+		t.Errorf("no offline banner: %v", RecordedTexts())
+	}
+}
+
+func TestMainSectionsHidden(t *testing.T) {
+	var m Main
+	hs := newHarness(800, 600)
+	s := snapOf(task("a", domain.StateDownloading, state.SectionActive), task("b", domain.StateCompleted, state.SectionCompleted))
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, s, now) })
+	want := []state.Section{state.SectionActive, state.SectionCompleted}
+	if !reflect.DeepEqual(m.ShownSections, want) {
+		t.Fatalf("shown %v want %v", m.ShownSections, want)
+	}
+}
+
+func TestMainClickPause(t *testing.T) {
+	var m Main
+	hs := newHarness(800, 600)
+	v := task("a", domain.StateDownloading, state.SectionActive)
+	v.CanPause, v.CanCancel = true, true
+	s := snapOf(v)
+	lay := func(gtx layout.Context) { m.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	hs.click(&m.Row("a").Pause, lay)
+	var got []Intent
+	hs.frame(func(gtx layout.Context) { got = m.Layout(gtx, th, s, now) })
+	if !slices.Contains(got, Intent(IntentCommand{Cmd: app.PauseTask{ID: "a"}})) {
+		t.Fatalf("intents %#v", got)
+	}
+}
+
+func TestMainCancelAsksConfirm(t *testing.T) {
+	var m Main
+	hs := newHarness(800, 600)
+	v := task("a", domain.StateDownloading, state.SectionActive)
+	v.CanPause, v.CanCancel = true, true
+	s := snapOf(v)
+	lay := func(gtx layout.Context) { m.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	hs.click(&m.Row("a").Cancel, lay)
+	var got []Intent
+	hs.frame(func(gtx layout.Context) { got = m.Layout(gtx, th, s, now) })
+	if !slices.Contains(got, Intent(IntentConfirm{Kind: ConfirmCancel, ID: "a"})) {
+		t.Fatalf("intents %#v", got)
+	}
+}
+
+func TestMainHeaderAdd(t *testing.T) {
+	var m Main
+	hs := newHarness(800, 600)
+	s := &state.Snapshot{}
+	lay := func(gtx layout.Context) { m.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	hs.click(&m.add, lay)
+	var got []Intent
+	hs.frame(func(gtx layout.Context) { got = m.Layout(gtx, th, s, now) })
+	if !slices.Contains(got, Intent(IntentOpenAdd{})) {
+		t.Fatalf("intents %#v", got)
+	}
+}
+
+func TestDetailsWideVsNarrow(t *testing.T) {
+	s := snapOf(task("a", domain.StateDownloading, state.SectionActive))
+	for _, c := range []struct {
+		w    int
+		mode DetailsMode
+	}{{1200, DetailsPane}, {800, DetailsSheet}} {
+		var m Main
+		m.Selected = "a"
+		hs := newHarness(c.w, 600)
+		hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, s, now) })
+		if m.DetailsMode != c.mode {
+			t.Errorf("width %d: mode %v want %v", c.w, m.DetailsMode, c.mode)
+		}
+	}
+	var m Main
+	hs := newHarness(1200, 600)
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, s, now) })
+	if m.DetailsMode != DetailsNone {
+		t.Errorf("no selection: mode %v", m.DetailsMode)
+	}
+}
+
+func TestDetailsShowsFields(t *testing.T) {
+	recordTexts(t)
+	v := task("a", domain.StateFailed, state.SectionFailed)
+	v.LastError, v.LastErrorAction = "boom", "Retry the download."
+	d := Details{ID: "a"}
+	hs := newHarness(500, 800)
+	hs.frame(func(gtx layout.Context) { d.Layout(gtx, th, snapOf(v), now) })
+	for _, s := range []string{"https://ex.com/a", "/tmp/a.iso", "boom", "Retry the download."} {
+		if !hasText(t, s) {
+			t.Errorf("missing %q", s)
+		}
+	}
+}
+
+func TestSettingsValidation(t *testing.T) {
+	recordTexts(t)
+	var st Settings
+	st.Open(settings.Default())
+	st.maxSim.SetText("0")
+	hs := newHarness(800, 900)
+	s := &state.Snapshot{}
+	lay := func(gtx layout.Context) { st.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	hs.click(&st.save, lay)
+	var got []Intent
+	hs.frame(func(gtx layout.Context) { got = st.Layout(gtx, th, s, now) })
+	if len(got) != 0 {
+		t.Fatalf("expected no intents, got %#v", got)
+	}
+	if st.errs["MaxSimultaneous"] == "" {
+		t.Fatalf("no field error: %v", st.errs)
+	}
+	hs.frame(lay)
+	if !hasText(t, st.errs["MaxSimultaneous"]) {
+		t.Errorf("error text not rendered")
+	}
+
+	st.maxSim.SetText("4")
+	hs.click(&st.save, lay)
+	hs.frame(func(gtx layout.Context) { got = st.Layout(gtx, th, s, now) })
+	want := settings.Default()
+	want.MaxSimultaneous = 4
+	if !slices.Contains(got, Intent(IntentCommand{Cmd: app.SaveSettings{S: want}})) || !slices.Contains(got, Intent(IntentCloseSettings{})) {
+		t.Fatalf("intents %#v", got)
+	}
+}
+
+func TestRenderedGlyphsCovered(t *testing.T) {
+	recordTexts(t)
+	v := task("a", domain.StateFailed, state.SectionFailed)
+	v.LastError, v.Strategy, v.DecisionSummary = "boom", "multi", "ranges ok"
+	v.Retries = []state.AttemptView{{Attempt: 1, Kind: "timeout", Message: "slow"}}
+	s := snapOf(v)
+	s.Offline = true
+	m := Main{Selected: "a"}
+	var st Settings
+	st.Open(settings.Default())
+	hs := newHarness(1200, 900)
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, s, now); st.Layout(gtx, th, s, now) })
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, &state.Snapshot{}, now) })
+	assertGlyphs(t, RecordedTexts())
+}
