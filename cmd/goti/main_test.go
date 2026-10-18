@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/platform"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/platform"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 func TestMainWiringHeadless(t *testing.T) {
@@ -63,4 +63,13 @@ func TestMainWiringHeadless(t *testing.T) {
 		t.Fatalf("rebuild: %v", err)
 	}
 	rt2.close()
+}
+
+func TestDataDirFlagOverridesEnv(t *testing.T) {
+	if got := dataDirFor("/flag", map[string]string{"GOTI_DATA_DIR": "/env"}, nil); got != "/flag" {
+		t.Errorf("got %q", got)
+	}
+	if got := dataDirFor("", map[string]string{"GOTI_DATA_DIR": "/env"}, nil); got != "/env" {
+		t.Errorf("got %q", got)
+	}
 }

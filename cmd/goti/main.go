@@ -1,4 +1,4 @@
-// Command swiftfetch is the SwiftFetch desktop GUI (spec §11).
+// Command goti is the Goti desktop GUI (spec §11).
 package main
 
 import (
@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -17,20 +16,20 @@ import (
 	gioapp "gioui.org/app"
 	"gioui.org/io/system"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/internal/events"
-	"github.com/raptordnj/swiftfetch/internal/persistence"
-	"github.com/raptordnj/swiftfetch/internal/platform"
-	"github.com/raptordnj/swiftfetch/internal/ratelimit"
-	"github.com/raptordnj/swiftfetch/internal/services"
-	"github.com/raptordnj/swiftfetch/internal/settings"
-	"github.com/raptordnj/swiftfetch/internal/storage"
-	"github.com/raptordnj/swiftfetch/internal/tray"
-	"github.com/raptordnj/swiftfetch/internal/ui"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/persistence"
+	"github.com/raptordnj/goti/internal/platform"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/services"
+	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/storage"
+	"github.com/raptordnj/goti/internal/tray"
+	"github.com/raptordnj/goti/internal/ui"
+	"github.com/raptordnj/goti/internal/ui/state"
 )
 
 // runtime is the wired application minus window and tray.
@@ -43,6 +42,8 @@ type runtime struct {
 	engine *downloader.Engine
 	bus    *events.Bus
 	log    *slog.Logger
+
+	dataDir string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -73,7 +74,7 @@ func build(dataDir string) (*runtime, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := persistence.Open(filepath.Join(cfg.DataDir, "swiftfetch.db"))
+	db, err := persistence.Open(config.DBPath(cfg.DataDir))
 	if err != nil {
 		_ = lock.Unlock()
 		return nil, fmt.Errorf("cannot open database: %w", err)
@@ -92,7 +93,7 @@ func build(dataDir string) (*runtime, error) {
 	a := app.New(app.Deps{Engine: eng, Queue: q, Settings: repo, Bandwidth: bw, Bus: bus, Logger: log, BaseConfig: cfg})
 	ctx, cancel := context.WithCancel(context.Background())
 	return &runtime{app: a, store: &state.Store{}, db: db, lock: lock, queue: q, engine: eng, bus: bus, log: log,
-		ctx: ctx, cancel: cancel}, nil
+		ctx: ctx, cancel: cancel, dataDir: cfg.DataDir}, nil
 }
 
 func (r *runtime) invalidateWindow() {
@@ -143,7 +144,7 @@ func (r *runtime) showWindow() {
 	r.invalidate.Store(&inv)
 	go func() {
 		err := ui.RunWindow(ui.WindowDeps{App: r.app, Store: r.store, Window: w, TrayAvailable: r.trayOK.Load,
-			Logger: r.log, OnClosed: func() {
+			Logger: r.log, Version: version, DataDir: r.dataDir, OnClosed: func() {
 				r.winMu.Lock()
 				if r.win == w {
 					r.win = nil
@@ -163,16 +164,38 @@ func (r *runtime) close() error {
 	return errors.Join(r.db.Close(), r.lock.Unlock())
 }
 
+// version is the build version, shown in Settings > About; release builds
+// set it with -ldflags "-X main.version=...".
+var version = "dev"
+
+// dataDirFor resolves the data directory: --data-dir, then GOTI_DATA_DIR,
+// the deprecated legacy env var, and the default (migrating the legacy
+// data dir). It runs before the DB is opened or any lock is taken.
+func dataDirFor(flagDir string, env map[string]string, log *slog.Logger) string {
+	if flagDir != "" {
+		return flagDir
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	return config.ResolveDataDir(env, log)
+}
+
 func main() {
-	dataDir := flag.String("data-dir", os.Getenv("SWIFTFETCH_DATA_DIR"), "data directory (env SWIFTFETCH_DATA_DIR)")
+	flagDir := flag.String("data-dir", "", "data directory (env "+config.EnvDataDir+")")
 	flag.Parse()
-	rt, err := build(*dataDir)
+	env := map[string]string{}
+	for _, k := range []string{config.EnvDataDir, config.LegacyEnvDataDir} {
+		env[k] = os.Getenv(k)
+	}
+	dataDir := dataDirFor(*flagDir, env, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	rt, err := build(dataDir)
 	if errors.Is(err, platform.ErrAlreadyRunning) {
-		fmt.Fprintln(os.Stderr, "SwiftFetch is already running")
+		fmt.Fprintln(os.Stderr, platform.ErrAlreadyRunning)
 		os.Exit(1)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "swiftfetch:", err)
+		fmt.Fprintln(os.Stderr, "goti:", err)
 		os.Exit(1)
 	}
 

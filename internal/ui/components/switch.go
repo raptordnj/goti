@@ -10,7 +10,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // Switch is a full-width row: label on the left, a 32x18-dp toggle on the

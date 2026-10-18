@@ -6,7 +6,7 @@ import (
 	"gioui.org/font"
 	"gioui.org/layout"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // SectionHeader shows a list section title with its task count.

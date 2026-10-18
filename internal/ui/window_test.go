@@ -7,10 +7,10 @@ import (
 
 	"gioui.org/io/event"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/settings"
-	"github.com/raptordnj/swiftfetch/internal/ui/screens"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/ui/screens"
+	"github.com/raptordnj/goti/internal/ui/state"
 )
 
 type fakePicker struct{ path string }

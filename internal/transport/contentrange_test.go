@@ -3,7 +3,7 @@ package transport
 import (
 	"testing"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 func TestParseContentRange(t *testing.T) {

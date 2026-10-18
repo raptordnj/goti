@@ -17,7 +17,7 @@ import (
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // SchemaVersion is the newest schema this binary understands.

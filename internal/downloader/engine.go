@@ -21,13 +21,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/events"
-	"github.com/raptordnj/swiftfetch/internal/ratelimit"
-	"github.com/raptordnj/swiftfetch/internal/storage"
-	"github.com/raptordnj/swiftfetch/internal/strategy"
-	"github.com/raptordnj/swiftfetch/internal/transport"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/storage"
+	"github.com/raptordnj/goti/internal/strategy"
+	"github.com/raptordnj/goti/internal/transport"
 )
 
 const (
@@ -248,7 +248,7 @@ func checkWritableDir(dir string) error {
 	case !fi.IsDir():
 		return domain.NewError(domain.KindLocal, "destination "+dir+" is not a directory", "choose a directory", nil)
 	}
-	f, err := os.CreateTemp(dir, ".swiftfetch-probe-*")
+	f, err := os.CreateTemp(dir, ".goti-probe-*")
 	if err != nil {
 		return domain.NewError(domain.KindLocal, "destination directory "+dir+" is not writable", "check its permissions", err)
 	}

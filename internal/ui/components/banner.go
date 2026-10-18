@@ -5,8 +5,8 @@ import (
 
 	"gioui.org/layout"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/icons"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/icons"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // Banner is a slim 32-dp full-width bar tinted with col, with a leading icon.

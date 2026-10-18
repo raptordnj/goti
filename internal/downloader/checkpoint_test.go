@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/clocktest"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/clocktest"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 // seqSyncer records the sequence number of each Sync call.

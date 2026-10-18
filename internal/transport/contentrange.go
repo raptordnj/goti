@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // ContentRange is a parsed Content-Range response header for the bytes unit.

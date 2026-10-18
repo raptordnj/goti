@@ -22,18 +22,18 @@ bench:
 	go test ./internal/downloader -run '^$$' -bench '^BenchmarkInspect$$' -benchmem
 
 build:
-	CGO_ENABLED=0 go build -o bin/swiftfetch-cli ./cmd/swiftfetch-cli
+	CGO_ENABLED=0 go build -o bin/goti-cli ./cmd/goti-cli
 
 cross:
 	@for os in linux windows darwin; do \
 		for arch in amd64 arm64; do \
 			ext=""; [ $$os = windows ] && ext=".exe"; \
-			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -o bin/swiftfetch-cli-$$os-$$arch$$ext ./cmd/swiftfetch-cli || exit 1; \
+			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -o bin/goti-cli-$$os-$$arch$$ext ./cmd/goti-cli || exit 1; \
 		done; \
 	done
 
 gui:
-	go build -o bin/swiftfetch ./cmd/swiftfetch
+	go build -o bin/goti ./cmd/goti
 
 screenshots:
 	go test -tags snapshot ./internal/ui/snapshot -run TestScreenshots -args -update

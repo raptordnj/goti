@@ -16,10 +16,10 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/ratelimit"
-	"github.com/raptordnj/swiftfetch/internal/strategy"
-	"github.com/raptordnj/swiftfetch/internal/transport"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/strategy"
+	"github.com/raptordnj/goti/internal/transport"
 )
 
 const (

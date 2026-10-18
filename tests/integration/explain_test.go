@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/explain/*.golden")

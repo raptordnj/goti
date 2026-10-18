@@ -1,7 +1,7 @@
 // Package app is the command loop between the GUI/tray and the queue, engine and settings.
 package app
 
-import "github.com/raptordnj/swiftfetch/internal/settings"
+import "github.com/raptordnj/goti/internal/settings"
 
 // Command is a typed request sent to the App.
 type Command interface{ isCommand() }

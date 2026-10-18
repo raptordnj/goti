@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 const maxRetryAfter = 10 * time.Minute

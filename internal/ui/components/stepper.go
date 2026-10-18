@@ -11,8 +11,8 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/icons"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/icons"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // StepperState is the state of a numeric stepper.

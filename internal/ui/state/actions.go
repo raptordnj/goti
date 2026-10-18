@@ -1,7 +1,7 @@
 package state
 
 import (
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 type actions struct{ pause, resume, cancel, retry, restart, open bool }

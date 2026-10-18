@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 var _ Store = (*memStore)(nil)

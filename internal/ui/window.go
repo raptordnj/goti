@@ -14,13 +14,14 @@ import (
 	"gioui.org/unit"
 	"gioui.org/x/explorer"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/platform"
-	"github.com/raptordnj/swiftfetch/internal/settings"
-	"github.com/raptordnj/swiftfetch/internal/ui/dialogs"
-	"github.com/raptordnj/swiftfetch/internal/ui/screens"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/brand"
+	"github.com/raptordnj/goti/internal/platform"
+	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/ui/dialogs"
+	"github.com/raptordnj/goti/internal/ui/screens"
+	"github.com/raptordnj/goti/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 const (
@@ -48,6 +49,8 @@ type WindowDeps struct {
 	// Invalidate is also what state.Deps.Invalidate should call).
 	Window *gioapp.Window
 	Logger *slog.Logger
+	// Version and DataDir are shown in Settings > About.
+	Version, DataDir string
 }
 
 type dialogKind int
@@ -279,7 +282,7 @@ func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snap
 	}
 }
 
-// RunWindow opens the SwiftFetch window and runs its event loop until the
+// RunWindow opens the Goti window and runs its event loop until the
 // window is closed. Closing sends Quit unless CloseToTray is on and a tray
 // is available.
 func RunWindow(d WindowDeps) error {
@@ -287,7 +290,7 @@ func RunWindow(d WindowDeps) error {
 	if w == nil {
 		w = new(gioapp.Window)
 	}
-	w.Option(gioapp.Title("SwiftFetch"), gioapp.MinSize(unit.Dp(640), unit.Dp(420)), gioapp.Size(unit.Dp(960), unit.Dp(640)))
+	w.Option(gioapp.Title(brand.Name), gioapp.MinSize(unit.Dp(640), unit.Dp(420)), gioapp.Size(unit.Dp(960), unit.Dp(640)))
 	var picker FolderPicker
 	if d.Explorer != nil {
 		picker = d.Explorer(w)
@@ -296,6 +299,7 @@ func RunWindow(d WindowDeps) error {
 	}
 	c := newController(d.App.Send, w.Invalidate)
 	c.picker = picker
+	c.settings.Version, c.settings.DataDir = d.Version, d.DataDir
 	if d.Logger != nil {
 		c.log = d.Logger
 	}

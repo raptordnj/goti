@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 func TestCreateTempPreallocates(t *testing.T) {
@@ -27,7 +27,7 @@ func TestCreateTempPreallocates(t *testing.T) {
 	if fi.Size() != 10<<20 {
 		t.Fatalf("size = %d", fi.Size())
 	}
-	if !strings.HasSuffix(tf.Path(), "big.bin.swiftfetch-part") {
+	if !strings.HasSuffix(tf.Path(), "big.bin.goti-part") {
 		t.Fatalf("path = %s", tf.Path())
 	}
 }
@@ -55,7 +55,7 @@ func TestCreateTempExclusive(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = b.Close() }()
-	if !strings.HasSuffix(b.Path(), " (1).swiftfetch-part") {
+	if !strings.HasSuffix(b.Path(), " (1).goti-part") {
 		t.Fatalf("second path = %s", b.Path())
 	}
 }

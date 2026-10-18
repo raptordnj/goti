@@ -10,10 +10,10 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/anim"
-	"github.com/raptordnj/swiftfetch/internal/ui/icons"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/anim"
+	"github.com/raptordnj/goti/internal/ui/icons"
+	"github.com/raptordnj/goti/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 const (

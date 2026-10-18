@@ -3,9 +3,9 @@ package snapshot
 import (
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/settings"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/ui/state"
 )
 
 // Now is the fixed clock used by all fixtures.

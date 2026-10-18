@@ -1,6 +1,6 @@
 //go:build snapshot
 
-// Package snapshot renders SwiftFetch screens headlessly to PNG for visual
+// Package snapshot renders Goti screens headlessly to PNG for visual
 // review. It is development tooling, not used by the application.
 package snapshot
 
@@ -15,7 +15,7 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/anim"
+	"github.com/raptordnj/goti/internal/ui/anim"
 )
 
 // ErrNoGPU wraps the error from creating the headless window.

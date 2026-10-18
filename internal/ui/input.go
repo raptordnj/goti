@@ -14,9 +14,9 @@ import (
 	"gioui.org/layout"
 	"gioui.org/x/explorer"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/ui/screens"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/ui/screens"
+	"github.com/raptordnj/goti/internal/ui/state"
 )
 
 // quitRetryFor bounds how long a window close retries a full command buffer.

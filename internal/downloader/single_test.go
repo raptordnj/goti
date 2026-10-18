@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/ratelimit"
-	"github.com/raptordnj/swiftfetch/internal/storage"
-	"github.com/raptordnj/swiftfetch/internal/strategy"
-	"github.com/raptordnj/swiftfetch/internal/transport"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/storage"
+	"github.com/raptordnj/goti/internal/strategy"
+	"github.com/raptordnj/goti/internal/transport"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 const testSeed = 7

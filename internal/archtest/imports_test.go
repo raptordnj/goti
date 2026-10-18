@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const mod = "github.com/raptordnj/swiftfetch"
+const mod = "github.com/raptordnj/goti"
 
 type pkg struct {
 	ImportPath string
@@ -56,7 +56,7 @@ func TestImportRules(t *testing.T) {
 		t.Fatalf("suspiciously few packages: %d", len(pkgs))
 	}
 	gioAllowed := func(r string) bool {
-		return r == "internal/ui" || r == "cmd/swiftfetch" ||
+		return r == "internal/ui" || r == "cmd/goti" ||
 			under(r, "internal/ui/theme") || under(r, "internal/ui/components") ||
 			under(r, "internal/ui/screens") || under(r, "internal/ui/dialogs") ||
 			under(r, "internal/ui/icons") || under(r, "internal/ui/anim") ||

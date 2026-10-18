@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/clocktest"
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/transport"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/clocktest"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/transport"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 func newInspector(clock domain.Clock) *Inspector {

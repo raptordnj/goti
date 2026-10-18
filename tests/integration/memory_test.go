@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 // TestMemoryBound is acceptance criterion 7: a 1 GiB, 8-connection download
@@ -85,8 +85,8 @@ func TestCLIRSS(t *testing.T) {
 		peakMax  = 40 << 20
 		perConnS = 4 << 20
 	)
-	bin := filepath.Join(t.TempDir(), "swiftfetch-cli")
-	build := exec.Command("go", "build", "-o", bin, "github.com/raptordnj/swiftfetch/cmd/swiftfetch-cli") //nolint:gosec // temp output path
+	bin := filepath.Join(t.TempDir(), "goti-cli")
+	build := exec.Command("go", "build", "-o", bin, "github.com/raptordnj/goti/cmd/goti-cli") //nolint:gosec // temp output path
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
@@ -99,7 +99,7 @@ func TestCLIRSS(t *testing.T) {
 	})
 	dest := t.TempDir()
 	cmd := exec.Command(bin, "get", srv.URL+"/file", "-o", dest, "--conns", "8") //nolint:gosec // test binary
-	cmd.Env = append(os.Environ(), "SWIFTFETCH_DATA_DIR="+t.TempDir())
+	cmd.Env = append(os.Environ(), "GOTI_DATA_DIR="+t.TempDir())
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {

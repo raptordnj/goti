@@ -9,13 +9,15 @@ import (
 	"gioui.org/layout"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/settings"
-	"github.com/raptordnj/swiftfetch/internal/ui/components"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/brand"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/ui/components"
+	"github.com/raptordnj/goti/internal/ui/icons"
+	"github.com/raptordnj/goti/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // EngineNote is shown under the engine fields (spec §4).
@@ -30,6 +32,9 @@ var (
 // settings.Validate and shows per-field errors, or emits SaveSettings and
 // IntentCloseSettings.
 type Settings struct {
+	// Version and DataDir are shown in the About group.
+	Version, DataDir string
+
 	base                                        settings.Settings
 	maxSim, dir, maxConn, globalLimit, perLimit widget.Editor
 	resumeOnStart, closeToTray                  bool
@@ -183,7 +188,36 @@ func (st *Settings) fields(th *theme.Theme) []layout.Widget {
 		st.choice(th, "Close to tray", &st.trayBtn, onOff(st.closeToTray)),
 		Row(components.Button(th, &st.save, "Save", components.Primary),
 			components.Button(th, &st.cancel, "Cancel", components.Ghost)),
+		st.about(th),
 	}
+}
+
+// ScrollToAbout scrolls the form so the About group is visible.
+func (st *Settings) ScrollToAbout() {
+	st.list.Position.First = 1 << 20 // clamped to the last item by List
+	st.list.Position.Offset = 0
+}
+
+// about is the About group (spec B11): mark, name, wordmark, tagline,
+// version and data directory.
+func (st *Settings) about(th *theme.Theme) layout.Widget {
+	version := st.Version
+	if version == "" {
+		version = "dev"
+	}
+	mark := func(gtx layout.Context) layout.Dimensions { return icons.ArrowDown(gtx, 32, th.Accent) }
+	ws := []layout.Widget{
+		Label(th, theme.Caption, th.TextMuted, "About"),
+		Row(mark, Column(0,
+			bold(th, theme.Title, th.Text, brand.Name),
+			Label(th, theme.Body, th.TextMuted, brand.Wordmark))),
+		Label(th, theme.Body, th.Text, brand.Tagline),
+		Label(th, theme.Caption, th.TextMuted, "Version "+version),
+	}
+	if st.DataDir != "" {
+		ws = append(ws, Label(th, theme.Caption, th.TextMuted, "Data folder: "+st.DataDir))
+	}
+	return Column(theme.S2, ws...)
 }
 
 // HasFocus reports whether one of the form's text fields has keyboard focus.

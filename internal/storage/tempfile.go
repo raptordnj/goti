@@ -13,11 +13,11 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 const (
-	tempSuffix     = ".swiftfetch-part"
+	tempSuffix     = ".goti-part"
 	maxTempRetries = 1000
 	hashBufSize    = 64 << 10
 )
@@ -29,8 +29,8 @@ type TempFile struct {
 	closed atomic.Bool
 }
 
-// CreateTemp exclusively creates "<dir>/<base>.swiftfetch-part" (mode 0644),
-// falling back to "<base> (N).swiftfetch-part" when it exists. When
+// CreateTemp exclusively creates "<dir>/<base>.goti-part" (mode 0644),
+// falling back to "<base> (N).goti-part" when it exists. When
 // sizeKnown, the file is truncated to size and, where supported,
 // preallocated.
 func CreateTemp(dir, base string, size int64, sizeKnown bool) (*TempFile, error) {

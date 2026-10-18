@@ -1,4 +1,4 @@
-// Package components holds SwiftFetch's reusable Gio widgets.
+// Package components holds Goti's reusable Gio widgets.
 package components
 
 import (
@@ -15,8 +15,8 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/anim"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/anim"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // FocusRing lays out w and, when tag is focused, draws a 2-dp Focus ring

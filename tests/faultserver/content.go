@@ -1,5 +1,5 @@
 // Package faultserver is a deterministic fault-injection HTTP server used as
-// the test harness for SwiftFetch's networking code.
+// the test harness for Goti's networking code.
 package faultserver
 
 import "crypto/sha256"

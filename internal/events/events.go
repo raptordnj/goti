@@ -4,7 +4,7 @@ package events
 import (
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // Event is anything published on the Bus.

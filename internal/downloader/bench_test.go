@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 // BenchmarkSingleVsMultipart downloads 64 MiB over loopback from a server

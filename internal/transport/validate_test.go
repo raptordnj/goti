@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 func TestReadValidators(t *testing.T) {

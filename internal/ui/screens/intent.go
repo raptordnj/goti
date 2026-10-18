@@ -1,12 +1,12 @@
-// Package screens holds SwiftFetch's passive Gio screens. Screens keep only
+// Package screens holds Goti's passive Gio screens. Screens keep only
 // widget state, lay out a *state.Snapshot and return Intents; the window loop
 // turns Intents into App commands, pickers, clipboard writes and so on.
 // Screens import internal/app for command types only.
 package screens
 
 import (
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/settings"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/settings"
 )
 
 // Intent is something a screen wants the window loop to do.

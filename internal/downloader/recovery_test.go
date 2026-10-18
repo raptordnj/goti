@@ -8,8 +8,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/storage"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/storage"
 )
 
 const recSize = 8 << 20

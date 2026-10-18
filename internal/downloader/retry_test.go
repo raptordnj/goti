@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/clocktest"
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/clocktest"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 func newBackoff() Backoff {

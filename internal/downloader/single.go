@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/transport"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/transport"
 )
 
 // runSingle downloads the task over one connection into env.file. It builds

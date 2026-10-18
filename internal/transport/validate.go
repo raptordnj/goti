@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // ReadValidators extracts the ETag and Last-Modified validators from h.

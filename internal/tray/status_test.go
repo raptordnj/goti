@@ -3,7 +3,7 @@ package tray
 import (
 	"testing"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/state"
 )
 
 func TestStatusLine(t *testing.T) {
@@ -32,5 +32,14 @@ func TestToggleLabel(t *testing.T) {
 	}
 	if got := ToggleLabel(&state.Snapshot{QueuePaused: true}); got != "Resume all" {
 		t.Errorf("paused = %q", got)
+	}
+}
+
+func TestTrayBrandStrings(t *testing.T) {
+	if Tooltip != "Goti — Fast by design. Reliable by nature." {
+		t.Errorf("Tooltip = %q", Tooltip)
+	}
+	if ShowLabel != "Show Goti" {
+		t.Errorf("ShowLabel = %q", ShowLabel)
 	}
 }

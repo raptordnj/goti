@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/anim"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/anim"
+	"github.com/raptordnj/goti/internal/ui/state"
 )
 
 func TestToastEnterFades(t *testing.T) {

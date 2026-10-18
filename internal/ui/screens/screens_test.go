@@ -7,10 +7,10 @@ import (
 
 	"gioui.org/layout"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/settings"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/ui/state"
 )
 
 func TestMainEmptyState(t *testing.T) {

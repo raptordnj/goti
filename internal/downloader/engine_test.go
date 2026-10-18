@@ -19,12 +19,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/events"
-	"github.com/raptordnj/swiftfetch/internal/ratelimit"
-	"github.com/raptordnj/swiftfetch/internal/transport"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/transport"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 const engSeed = 11
@@ -189,7 +189,7 @@ func checkContent(t *testing.T, path string, seed uint64, size int64) {
 
 func partFiles(t *testing.T, dir string) []string {
 	t.Helper()
-	m, err := filepath.Glob(filepath.Join(dir, "*.swiftfetch-part"))
+	m, err := filepath.Glob(filepath.Join(dir, "*.goti-part"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -852,7 +852,7 @@ func TestOfflineHostResolution(t *testing.T) {
 		}
 	})
 	_, port, _ := net.SplitHostPort(strings.TrimPrefix(f.srv.URL, "http://"))
-	task := f.add(t, AddRequest{URL: "http://swiftfetch-test.invalid:" + port + "/file"})
+	task := f.add(t, AddRequest{URL: "http://goti-test.invalid:" + port + "/file"})
 	go func() {
 		waitFor(t, 10*time.Second, "waiting for network", func() bool {
 			for _, ev := range f.events() {

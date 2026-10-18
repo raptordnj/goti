@@ -1,0 +1,132 @@
+package config
+
+import (
+	"bytes"
+	"errors"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/raptordnj/goti/internal/storage"
+)
+
+func testLog() (*slog.Logger, *bytes.Buffer) {
+	var b bytes.Buffer
+	return slog.New(slog.NewTextHandler(&b, nil)), &b
+}
+
+func TestMigrateDataDir(t *testing.T) {
+	t.Run("old exists new missing renames", func(t *testing.T) {
+		root := t.TempDir()
+		old, nw := filepath.Join(root, "swift"), filepath.Join(root, "goti")
+		if err := os.MkdirAll(old, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(old, LegacyDBName), []byte("db"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		log, buf := testLog()
+		got, err := MigrateDataDir(old, nw, log)
+		if err != nil || got != nw {
+			t.Fatalf("got %q, %v; want %q", got, err, nw)
+		}
+		if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("old dir still exists: %v", err)
+		}
+		MigrateDBName(nw, log)
+		if b, err := os.ReadFile(filepath.Join(nw, DBName)); err != nil || string(b) != "db" {
+			t.Errorf("db not migrated: %q %v", b, err)
+		}
+		if !strings.Contains(buf.String(), "migrated data from") {
+			t.Errorf("log = %q", buf.String())
+		}
+	})
+	t.Run("both exist uses new and leaves old", func(t *testing.T) {
+		root := t.TempDir()
+		old, nw := filepath.Join(root, "swift"), filepath.Join(root, "goti")
+		for _, d := range []string{old, nw} {
+			if err := os.MkdirAll(d, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		log, _ := testLog()
+		got, err := MigrateDataDir(old, nw, log)
+		if err != nil || got != nw {
+			t.Fatalf("got %q, %v", got, err)
+		}
+		if _, err := os.Stat(old); err != nil {
+			t.Errorf("old touched: %v", err)
+		}
+	})
+	t.Run("rename failure keeps old with warning", func(t *testing.T) {
+		root := t.TempDir()
+		old := filepath.Join(root, "swift")
+		if err := os.MkdirAll(old, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("needs POSIX permissions as non-root")
+		}
+		// New's parent is read-only, so the rename fails.
+		ro := filepath.Join(root, "ro")
+		if err := os.MkdirAll(ro, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
+		nw := filepath.Join(ro, "goti")
+		log, buf := testLog()
+		got, err := MigrateDataDir(old, nw, log)
+		if err != nil || got != old {
+			t.Fatalf("got %q, %v; want %q", got, err, old)
+		}
+		if !strings.Contains(buf.String(), "WARN") {
+			t.Errorf("no warning logged: %q", buf.String())
+		}
+	})
+	t.Run("old locked skips migration", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("relies on per-descriptor flock semantics")
+		}
+		root := t.TempDir()
+		old, nw := filepath.Join(root, "swift"), filepath.Join(root, "goti")
+		if err := os.MkdirAll(old, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		l, err := storage.TryLock(filepath.Join(old, "gui.lock"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = l.Unlock() }()
+		log, buf := testLog()
+		got, err := MigrateDataDir(old, nw, log)
+		if err != nil || got != old {
+			t.Fatalf("got %q, %v; want %q", got, err, old)
+		}
+		if _, err := os.Stat(nw); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("new dir created: %v", err)
+		}
+		if !strings.Contains(buf.String(), "WARN") {
+			t.Errorf("no warning: %q", buf.String())
+		}
+	})
+}
+
+func TestDataDirEnvPrecedence(t *testing.T) {
+	log, buf := testLog()
+	if got := ResolveDataDir(map[string]string{EnvDataDir: "/a", LegacyEnvDataDir: "/b"}, log); got != "/a" {
+		t.Errorf("GOTI_DATA_DIR not preferred: %q", got)
+	}
+	if got := ResolveDataDir(map[string]string{LegacyEnvDataDir: "/b"}, log); got != "/b" {
+		t.Errorf("legacy fallback: %q", got)
+	}
+	if !strings.Contains(buf.String(), "deprecated") {
+		t.Errorf("legacy env not logged as deprecated: %q", buf.String())
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if got := ResolveDataDir(map[string]string{}, log); got != DefaultDataDir() {
+		t.Errorf("default: %q want %q", got, DefaultDataDir())
+	}
+}

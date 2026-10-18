@@ -10,8 +10,8 @@ import (
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/anim"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/anim"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // indetLoop is the period of the indeterminate segment's slide.

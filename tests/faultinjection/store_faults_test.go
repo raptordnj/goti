@@ -11,19 +11,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/internal/events"
-	"github.com/raptordnj/swiftfetch/internal/persistence"
-	"github.com/raptordnj/swiftfetch/internal/ratelimit"
-	"github.com/raptordnj/swiftfetch/internal/transport"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/persistence"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/transport"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 const seed = 26
 
-// newEngine wires an Engine like cmd/swiftfetch-cli over store, downloading
+// newEngine wires an Engine like cmd/goti-cli over store, downloading
 // into dir with data dir dataDir ("" → a t.TempDir()). Its Shutdown is
 // registered with t.Cleanup.
 func newEngine(t *testing.T, store downloader.Store, dir, dataDir string) *downloader.Engine {
@@ -118,7 +118,7 @@ func throttled(t *testing.T, size int64) *faultserver.Server {
 func TestCheckpointFailureThenRecover(t *testing.T) {
 	const size = 8 << 20
 	srv := throttled(t, size)
-	db := openDB(t, filepath.Join(t.TempDir(), "swiftfetch.db"))
+	db := openDB(t, filepath.Join(t.TempDir(), "goti.db"))
 	dir := t.TempDir()
 	faulty := &FaultyStore{Store: db, FailSaveCheckpointAfter: 3}
 	eng := newEngine(t, faulty, dir, "")
@@ -146,7 +146,7 @@ func TestCheckpointFailureThenRecover(t *testing.T) {
 func TestUpdateTaskFailure(t *testing.T) {
 	const size = 4 << 20
 	srv := throttled(t, size)
-	db := openDB(t, filepath.Join(t.TempDir(), "swiftfetch.db"))
+	db := openDB(t, filepath.Join(t.TempDir(), "goti.db"))
 	dir := t.TempDir()
 	faulty := &FaultyStore{Store: db, FailUpdateTaskAfter: 2}
 	eng := newEngine(t, faulty, dir, "")

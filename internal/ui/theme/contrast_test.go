@@ -2,7 +2,7 @@ package theme
 
 import (
 	"gioui.org/font"
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 	"image/color"
 	"math"
 	"testing"

@@ -3,8 +3,15 @@ package tray
 import (
 	"strconv"
 
-	"github.com/raptordnj/swiftfetch/internal/platform"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/brand"
+	"github.com/raptordnj/goti/internal/platform"
+	"github.com/raptordnj/goti/internal/ui/state"
+)
+
+// Tray tooltip and menu labels (spec B9).
+const (
+	Tooltip   = brand.Name + " — " + brand.Tagline
+	ShowLabel = "Show " + brand.Name
 )
 
 // StatusLine is the tray's disabled status item: "Idle", "Paused" or

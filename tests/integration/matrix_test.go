@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/internal/strategy"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/internal/strategy"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 const (
@@ -317,7 +317,7 @@ func assertNoFinalFile(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if filepath.Ext(e.Name()) != ".swiftfetch-part" {
+		if filepath.Ext(e.Name()) != ".goti-part" {
 			t.Errorf("unexpected file %s in destination", e.Name())
 		}
 	}

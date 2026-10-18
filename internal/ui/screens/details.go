@@ -8,11 +8,11 @@ import (
 	"gioui.org/layout"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/platform"
-	"github.com/raptordnj/swiftfetch/internal/ui/components"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/platform"
+	"github.com/raptordnj/goti/internal/ui/components"
+	"github.com/raptordnj/goti/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // maxRetriesShown caps the retry history in the details panel.

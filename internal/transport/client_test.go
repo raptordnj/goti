@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 func TestIsNonPublic(t *testing.T) {

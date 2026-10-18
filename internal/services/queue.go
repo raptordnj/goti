@@ -9,16 +9,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/internal/events"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/internal/events"
 )
 
 const (
 	tickInterval  = 5 * time.Second
 	lockedSkip    = 30 * time.Second
 	pausePoll     = 2 * time.Millisecond
-	lockedWarning = "running in another SwiftFetch process"
+	lockedWarning = "running in another Goti process"
 )
 
 // QueueEngine is the engine surface the queue drives; *downloader.Engine satisfies it.

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // Theme is the UI colour scheme.

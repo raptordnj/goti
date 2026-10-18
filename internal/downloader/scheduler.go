@@ -13,8 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/storage"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/storage"
 )
 
 // splitAlign is the alignment of endgame split points (spec §6.2).

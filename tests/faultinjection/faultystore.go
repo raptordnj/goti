@@ -7,8 +7,8 @@ import (
 	"errors"
 	"sync/atomic"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
 )
 
 // ErrInjected is the error a FaultyStore returns for an injected fault.

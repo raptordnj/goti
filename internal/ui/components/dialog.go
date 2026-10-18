@@ -12,8 +12,8 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/anim"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/anim"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // dialogWidth is the card width in dp (narrower windows shrink it).

@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/ratelimit"
-	"github.com/raptordnj/swiftfetch/internal/storage"
-	"github.com/raptordnj/swiftfetch/internal/strategy"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/storage"
+	"github.com/raptordnj/goti/internal/strategy"
 )
 
 // bufSize is the size of the pooled read buffers (spec §6.5) and the bufSize

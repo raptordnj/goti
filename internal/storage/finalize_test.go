@@ -10,7 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 func writeFile(t *testing.T, path, content string) {

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 const queueCap = 256

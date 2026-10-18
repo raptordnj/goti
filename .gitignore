@@ -1,5 +1,5 @@
 /bin/
-*.swiftfetch-part
+*.goti-part
 coverage.out
 .superpowers/
-/swiftfetch-cli
+/goti-cli

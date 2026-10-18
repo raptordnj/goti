@@ -4,7 +4,7 @@ package strategy
 import (
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // ProbeResult records one range probe (spec §4.2).

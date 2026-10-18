@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // Config is the engine configuration. Zero connection counts mean "auto"
@@ -167,15 +167,29 @@ func DefaultDataDir() string {
 		if base == "" {
 			base = filepath.Join(homeDir(), "AppData", "Local")
 		}
-		return filepath.Join(base, "SwiftFetch")
+		return filepath.Join(base, "Goti")
 	case "darwin":
-		return filepath.Join(homeDir(), "Library", "Application Support", "SwiftFetch")
+		return filepath.Join(homeDir(), "Library", "Application Support", "Goti")
 	default:
 		if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-			return filepath.Join(x, "swiftfetch")
+			return filepath.Join(x, "goti")
 		}
-		return filepath.Join(homeDir(), ".local", "share", "swiftfetch")
+		return filepath.Join(homeDir(), ".local", "share", "goti")
 	}
+}
+
+// LegacyDataDir returns the pre-rebrand (SwiftFetch) per-OS data directory,
+// used only as a migration source.
+func LegacyDataDir() string {
+	nw := DefaultDataDir()
+	return filepath.Join(filepath.Dir(nw), legacyDirName())
+}
+
+func legacyDirName() string {
+	if runtime.GOOS == "linux" || (runtime.GOOS != "windows" && runtime.GOOS != "darwin") {
+		return "swiftfetch"
+	}
+	return "SwiftFetch"
 }
 
 func homeDir() string {

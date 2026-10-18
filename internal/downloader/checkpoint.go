@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/storage"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/storage"
 )
 
 // syncer flushes written data to stable storage (*storage.TempFile).

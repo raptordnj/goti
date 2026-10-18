@@ -7,13 +7,14 @@ import (
 
 	"fyne.io/systray"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/brand"
 )
 
 // setup sets the icon and tooltip and starts the menu loop.
 func setup(d Deps, done <-chan struct{}) {
 	systray.SetIcon(icon())
-	systray.SetTooltip("SwiftFetch")
+	systray.SetTooltip(Tooltip)
 	go menuLoop(d, done)
 }
 
@@ -21,12 +22,12 @@ func setup(d Deps, done <-chan struct{}) {
 // toggle items once per second until done.
 func menuLoop(d Deps, done <-chan struct{}) {
 	snap := d.Snapshot()
-	show := systray.AddMenuItem("Show SwiftFetch", "Open the SwiftFetch window")
+	show := systray.AddMenuItem(ShowLabel, "Open the "+brand.Name+" window")
 	status := systray.AddMenuItem(StatusLine(snap), "")
 	status.Disable()
 	toggle := systray.AddMenuItem(ToggleLabel(snap), "")
 	systray.AddSeparator()
-	quit := systray.AddMenuItem("Quit", "Quit SwiftFetch")
+	quit := systray.AddMenuItem("Quit", "Quit "+brand.Name)
 
 	lastStatus, lastToggle := StatusLine(snap), ToggleLabel(snap)
 	tick := time.NewTicker(refreshInterval)

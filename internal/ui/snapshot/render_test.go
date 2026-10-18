@@ -13,10 +13,10 @@ import (
 
 	"gioui.org/layout"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/dialogs"
-	"github.com/raptordnj/swiftfetch/internal/ui/screens"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/dialogs"
+	"github.com/raptordnj/goti/internal/ui/screens"
+	"github.com/raptordnj/goti/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 var update = flag.Bool("update", false, "write PNGs to docs/screenshots")
@@ -63,6 +63,12 @@ func scenes() []scene {
 		{"settings", Busy, func(th *theme.Theme, snap *state.Snapshot) func(layout.Context) {
 			var st screens.Settings
 			st.Open(snap.Settings)
+			return func(gtx layout.Context) { st.Layout(gtx, th, snap, Now) }
+		}},
+		{"settings-about", Busy, func(th *theme.Theme, snap *state.Snapshot) func(layout.Context) {
+			st := screens.Settings{Version: "dev", DataDir: "/home/user/.local/share/goti"}
+			st.Open(snap.Settings)
+			st.ScrollToAbout()
 			return func(gtx layout.Context) { st.Layout(gtx, th, snap, Now) }
 		}},
 		{"toasts", WithToasts, mainScene("", nil)},

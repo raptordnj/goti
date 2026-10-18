@@ -1,27 +1,29 @@
-# SwiftFetch
+# Goti (গতি)
 
-SwiftFetch is a headless download engine written in Go, plus a small CLI
-(`swiftfetch-cli`). It checks what a server actually supports before it picks a
+*Fast by design. Reliable by nature.*
+
+Goti is a headless download engine written in Go, plus a small CLI
+(`goti-cli`). It checks what a server actually supports before it picks a
 strategy. Downloads are resumable, verified, and crash-safe. It is built to keep
 memory use small: about 20 MiB RSS idle, and at most 40 MiB during an
 8-connection download.
 
 The engine and CLI contain no GUI code and no cgo; the GUI
-lives in `cmd/swiftfetch` (described below, needs cgo). Engine builds use `CGO_ENABLED=0`.
+lives in `cmd/goti` (described below, needs cgo). Engine builds use `CGO_ENABLED=0`.
 
 ## Build and install
 
 Requires Go 1.27.
 
 ```sh
-make build                      # bin/swiftfetch-cli
-go install github.com/raptordnj/swiftfetch/cmd/swiftfetch-cli@latest
+make build                      # bin/goti-cli
+go install github.com/raptordnj/goti/cmd/goti-cli@latest
 make cross                      # linux/windows/darwin x amd64/arm64 into bin/
 ```
 
-## GUI (swiftfetch)
+## GUI (goti)
 
-`cmd/swiftfetch` is a desktop GUI built with [Gio](https://gioui.org) on top of
+`cmd/goti` is a desktop GUI built with [Gio](https://gioui.org) on top of
 the engine, with a small download queue and a system tray. Unlike the engine and
 the CLI, it needs cgo and platform graphics headers.
 
@@ -35,12 +37,12 @@ the CLI, it needs cgo and platform graphics headers.
 ### Build and run
 
 ```sh
-go build ./cmd/swiftfetch      # or: make gui  (writes bin/swiftfetch)
-./swiftfetch --data-dir /path/to/data
+go build ./cmd/goti      # or: make gui  (writes bin/goti)
+./goti --data-dir /path/to/data
 ```
 
 The data directory defaults to the OS location listed under Configuration
-defaults. Override it with `--data-dir` or `SWIFTFETCH_DATA_DIR`.
+defaults. Override it with `--data-dir` or `GOTI_DATA_DIR`.
 
 ### Keyboard shortcuts
 
@@ -90,23 +92,23 @@ actions, rich animation, second-launch activation (IPC), packaging and signing.
 ## CLI usage
 
 ```
-swiftfetch-cli get URL [-o DIR] [--conns auto|N] [--limit RATE] [--sha256 HEX] [--on-exists rename|overwrite|fail] [--conservative]
-swiftfetch-cli explain URL
-swiftfetch-cli list
-swiftfetch-cli resume ID [--restart-if-changed]
-swiftfetch-cli rm ID [--delete-partial]
+goti-cli get URL [-o DIR] [--conns auto|N] [--limit RATE] [--sha256 HEX] [--on-exists rename|overwrite|fail] [--conservative]
+goti-cli explain URL
+goti-cli list
+goti-cli resume ID [--restart-if-changed]
+goti-cli rm ID [--delete-partial]
 ```
 
 Examples:
 
 ```sh
-swiftfetch-cli get https://example.com/big.iso -o ~/Downloads
-swiftfetch-cli get https://example.com/big.iso --limit 2M --sha256 <64 hex chars>
-swiftfetch-cli get https://example.com/big.iso --conns 4      # warns: forcing connections can hurt throughput
-swiftfetch-cli explain https://example.com/big.iso            # inspect only; downloads probe bytes only
-swiftfetch-cli list                                           # state, progress, redacted URL
-swiftfetch-cli resume 3f2a...                                 # recover + revalidate, then continue
-swiftfetch-cli rm 3f2a... --delete-partial                    # never deletes completed files
+goti-cli get https://example.com/big.iso -o ~/Downloads
+goti-cli get https://example.com/big.iso --limit 2M --sha256 <64 hex chars>
+goti-cli get https://example.com/big.iso --conns 4      # warns: forcing connections can hurt throughput
+goti-cli explain https://example.com/big.iso            # inspect only; downloads probe bytes only
+goti-cli list                                           # state, progress, redacted URL
+goti-cli resume 3f2a...                                 # recover + revalidate, then continue
+goti-cli rm 3f2a... --delete-partial                    # never deletes completed files
 ```
 
 - The progress line is redrawn at most 4 times a second. It shows the name,
@@ -115,7 +117,7 @@ swiftfetch-cli rm 3f2a... --delete-partial                    # never deletes co
   checkpoint is written, and the state becomes `paused`. A second press within
   2 s exits immediately; the next run recovers the state.
 - **Exit codes:** 0 success, 1 failed, 2 usage/config error, 3 paused/interrupted.
-- `SWIFTFETCH_DATA_DIR` overrides the data directory. The CLI caps the Go heap
+- `GOTI_DATA_DIR` overrides the data directory. The CLI caps the Go heap
   with `debug.SetMemoryLimit(32 MiB)` unless `GOMEMLIMIT` is set.
 
 ## How strategy selection works
@@ -185,7 +187,7 @@ Probes:
 A checkpoint runs every `CheckpointInterval` (2 s) or `CheckpointBytes`
 (16 MiB). Each one first `fsync`s the data, then writes the segment progress
 and the serialized SHA-256 state in a single SQLite transaction. On recovery
-SwiftFetch re-hashes every completed and in-progress range from disk, and it
+Goti re-hashes every completed and in-progress range from disk, and it
 reuses only the bytes that verify.
 
 Trade-off: the checkpoint interval limits lost work to about interval ×
@@ -238,7 +240,17 @@ be set from 0.5 to 30 s.
 | AllowHTTPSDowngrade | false | — |
 | ProgressHz | 4 | 1–30 |
 | DownloadDir | OS downloads dir (`$XDG_DOWNLOAD_DIR` or `~/Downloads`) | existing dir |
-| DataDir | `$XDG_DATA_HOME/swiftfetch` / `%LOCALAPPDATA%\SwiftFetch` / `~/Library/Application Support/SwiftFetch` | — |
+| DataDir | `$XDG_DATA_HOME/goti` / `%LOCALAPPDATA%\Goti` / `~/Library/Application Support/Goti` | — |
+
+## Upgrading from SwiftFetch
+
+Goti was previously named SwiftFetch. On first start, both `goti` and `goti-cli`
+rename the old data directory (`$XDG_DATA_HOME/swiftfetch`, `%LOCALAPPDATA%\SwiftFetch`,
+`~/Library/Application Support/SwiftFetch`) to the new location, and rename
+`swiftfetch.db` to `goti.db`. They never copy and delete. If the rename fails, or an old
+instance is still running, the old directory is used for that run and a warning is
+logged. `SWIFTFETCH_DATA_DIR` is still honoured as a deprecated fallback for
+`GOTI_DATA_DIR`.
 
 ## Known limitations
 

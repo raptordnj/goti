@@ -8,7 +8,7 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget/material"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // Test hook: when recording is on, every string drawn through Text is kept.

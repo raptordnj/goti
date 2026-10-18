@@ -15,19 +15,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/internal/events"
-	"github.com/raptordnj/swiftfetch/internal/persistence"
-	"github.com/raptordnj/swiftfetch/internal/ratelimit"
-	"github.com/raptordnj/swiftfetch/internal/transport"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/persistence"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/transport"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 const seed = 25
 
-// harness is an Engine wired like cmd/swiftfetch-cli (real SQLite, event
+// harness is an Engine wired like cmd/goti-cli (real SQLite, event
 // bus, transport.NewClient) over one fault server.
 type harness struct {
 	eng  *downloader.Engine
@@ -54,7 +54,7 @@ func newHarness(t *testing.T, opts faultserver.Options, ho harnessOpts) *harness
 		opts.Seed = seed
 	}
 	h := &harness{srv: faultserver.New(t, opts), dir: t.TempDir(), seed: opts.Seed}
-	db, err := persistence.Open(filepath.Join(t.TempDir(), "swiftfetch.db"))
+	db, err := persistence.Open(filepath.Join(t.TempDir(), "goti.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/strategy"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/strategy"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 const testETag = "v1"

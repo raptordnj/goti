@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/events"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/events"
 )
 
 func TestRenderProgress(t *testing.T) {

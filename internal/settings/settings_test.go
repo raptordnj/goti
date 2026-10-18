@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/persistence"
-	"github.com/raptordnj/swiftfetch/internal/settings"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/persistence"
+	"github.com/raptordnj/goti/internal/settings"
 )
 
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

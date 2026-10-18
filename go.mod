@@ -1,4 +1,4 @@
-module github.com/raptordnj/swiftfetch
+module github.com/raptordnj/goti
 
 go 1.27
 

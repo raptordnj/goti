@@ -1,4 +1,4 @@
-// Command swiftfetch-cli is the command-line front end of the SwiftFetch
+// Command goti-cli is the command-line front end of the Goti
 // download engine (spec §15).
 package main
 
@@ -10,10 +10,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -21,13 +21,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/internal/events"
-	"github.com/raptordnj/swiftfetch/internal/persistence"
-	"github.com/raptordnj/swiftfetch/internal/ratelimit"
-	"github.com/raptordnj/swiftfetch/internal/transport"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/persistence"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/transport"
 )
 
 // Exit codes (spec §15).
@@ -42,7 +42,7 @@ const (
 	maxConnsFlag = 16
 )
 
-const usageText = `usage: swiftfetch-cli <command> [flags]
+const usageText = `usage: goti-cli <command> [flags]
 
 commands:
   get URL [-o DIR] [--conns auto|N] [--limit RATE] [--sha256 HEX] [--on-exists rename|overwrite|fail] [--conservative]
@@ -54,7 +54,7 @@ commands:
 
 func main() {
 	env := map[string]string{}
-	for _, k := range []string{"SWIFTFETCH_DATA_DIR", "GOMEMLIMIT"} {
+	for _, k := range []string{config.EnvDataDir, config.LegacyEnvDataDir, "GOMEMLIMIT"} {
 		if v, ok := os.LookupEnv(k); ok {
 			env[k] = v
 		}
@@ -188,9 +188,7 @@ func runWith(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	}
 
 	cfg := config.Default()
-	if d := env["SWIFTFETCH_DATA_DIR"]; d != "" {
-		cfg.DataDir = d
-	}
+	cfg.DataDir = config.ResolveDataDir(env, slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 	cfg.RestartOnRemoteChange = restart
 	if err := cfg.Validate(); err != nil {
 		outln(stderr, "invalid configuration:", err)
@@ -204,7 +202,7 @@ func runWith(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 		outln(stderr, "cannot create data directory:", err)
 		return exitFailed
 	}
-	db, err := persistence.Open(filepath.Join(cfg.DataDir, "swiftfetch.db"))
+	db, err := persistence.Open(config.DBPath(cfg.DataDir))
 	if err != nil {
 		outln(stderr, "cannot open database:", err)
 		return exitFailed
@@ -328,7 +326,7 @@ func (a *app) runTask(ctx context.Context, id string) int {
 		}
 		return exitOK
 	case errors.Is(err, domain.ErrPaused), errors.Is(err, domain.ErrCancelled):
-		outf(a.stdout, "paused; resume with: swiftfetch-cli resume %s\n", id)
+		outf(a.stdout, "paused; resume with: goti-cli resume %s\n", id)
 		return exitPaused
 	default:
 		if domain.KindOf(err) == domain.KindRemoteChanged && !a.cfg.RestartOnRemoteChange {

@@ -4,7 +4,7 @@ package downloader
 import (
 	"context"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // Store persists tasks, segment checkpoints and retry attempts.

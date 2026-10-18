@@ -10,8 +10,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/storage"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/storage"
 )
 
 // recoverBufSize is the read buffer used to re-hash segments on recovery;

@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/events"
-	"github.com/raptordnj/swiftfetch/internal/services"
-	"github.com/raptordnj/swiftfetch/internal/settings"
-	"github.com/raptordnj/swiftfetch/internal/transport"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/services"
+	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/transport"
 )
 
 const (

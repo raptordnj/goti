@@ -4,8 +4,9 @@ import (
 	"gioui.org/layout"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/components"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/brand"
+	"github.com/raptordnj/goti/internal/ui/components"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // Fixed copy for empty and offline states.
@@ -20,6 +21,11 @@ func emptyState(th *theme.Theme, add *widget.Clickable) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(bold(th, theme.Display, th.Text, brand.Name)),
+				layout.Rigid(Label(th, theme.Body, th.TextMuted, brand.Wordmark)),
+				layout.Rigid(layout.Spacer{Height: theme.S1}.Layout),
+				layout.Rigid(Label(th, theme.Caption, th.TextMuted, brand.Tagline)),
+				layout.Rigid(layout.Spacer{Height: theme.S6}.Layout),
 				layout.Rigid(Label(th, theme.Title, th.Text, EmptyTitle)),
 				layout.Rigid(layout.Spacer{Height: theme.S3}.Layout),
 				layout.Rigid(components.Button(th, add, "Add download", components.Primary)),

@@ -7,7 +7,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // Segmented is a compact segmented control; options are {key, label}

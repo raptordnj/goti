@@ -4,11 +4,11 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/raptordnj/swiftfetch/internal/storage"
+	"github.com/raptordnj/goti/internal/storage"
 )
 
-// ErrAlreadyRunning means another SwiftFetch instance holds the lock.
-var ErrAlreadyRunning = errors.New("SwiftFetch is already running")
+// ErrAlreadyRunning means another Goti instance holds the lock.
+var ErrAlreadyRunning = errors.New("Goti is already running")
 
 // InstanceLock takes the single-instance lock in dataDir.
 func InstanceLock(dataDir string) (*storage.FileLock, error) {

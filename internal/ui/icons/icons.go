@@ -1,4 +1,4 @@
-// Package icons draws SwiftFetch's vector line icons with Gio paths.
+// Package icons draws Goti's vector line icons with Gio paths.
 //
 // Icons are designed on a 16-unit grid with a 1.5-unit stroke (Lucide/
 // Feather style) and scale with the requested size. Play and Pause are the

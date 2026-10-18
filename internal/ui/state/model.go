@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/settings"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/settings"
 )
 
 // Section groups tasks in the list.

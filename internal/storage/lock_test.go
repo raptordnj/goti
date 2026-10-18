@@ -12,7 +12,7 @@ import (
 // TestTryLockAcrossProcesses holds the lock in a child process and checks
 // that this process is refused until the child exits.
 func TestTryLockAcrossProcesses(t *testing.T) {
-	if p := os.Getenv("SWIFTFETCH_LOCK_HELPER"); p != "" {
+	if p := os.Getenv("GOTI_LOCK_HELPER"); p != "" {
 		l, err := TryLock(p)
 		if err != nil {
 			os.Exit(3)
@@ -24,7 +24,7 @@ func TestTryLockAcrossProcesses(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "task.lock")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestTryLockAcrossProcesses$") //nolint:gosec // re-exec of the test binary
-	cmd.Env = append(os.Environ(), "SWIFTFETCH_LOCK_HELPER="+path)
+	cmd.Env = append(os.Environ(), "GOTI_LOCK_HELPER="+path)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)

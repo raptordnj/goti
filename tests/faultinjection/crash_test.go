@@ -12,26 +12,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/internal/storage"
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/internal/storage"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 const (
-	envChild = "SWIFTFETCH_CRASH_CHILD"
-	envURL   = "SWIFTFETCH_CRASH_URL"
-	envDB    = "SWIFTFETCH_CRASH_DB"
-	envDest  = "SWIFTFETCH_CRASH_DEST"
-	envData  = "SWIFTFETCH_CRASH_DATA"
-	envReady = "SWIFTFETCH_CRASH_READY"
+	envChild = "GOTI_CRASH_CHILD"
+	envURL   = "GOTI_CRASH_URL"
+	envDB    = "GOTI_CRASH_DB"
+	envDest  = "GOTI_CRASH_DEST"
+	envData  = "GOTI_CRASH_DATA"
+	envReady = "GOTI_CRASH_READY"
 
 	// readyTimeout bounds how long the parent waits for the child's task row.
 	readyTimeout = 60 * time.Second
 )
 
 // TestCrashChild is the download process TestCrashRecovery kills. It does
-// nothing unless SWIFTFETCH_CRASH_CHILD=1. All its directories come from
+// nothing unless GOTI_CRASH_CHILD=1. All its directories come from
 // the parent (env), so being killed leaks nothing outside the parent's
 // t.TempDir(). After Add it creates the ready marker file the parent waits on.
 func TestCrashChild(t *testing.T) {
@@ -77,7 +77,7 @@ func crashAndRecover(t *testing.T, s uint64) int {
 		Size: size, Seed: seed, ETag: "v1", BytesPerSecondGlobal: 8_000_000,
 	})
 	tmp := t.TempDir()
-	dbPath := filepath.Join(tmp, "swiftfetch.db")
+	dbPath := filepath.Join(tmp, "goti.db")
 	dest, dataDir := filepath.Join(tmp, "dest"), filepath.Join(tmp, "data")
 	ready := filepath.Join(tmp, "ready")
 	for _, d := range []string{dest, dataDir} {

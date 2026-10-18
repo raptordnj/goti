@@ -1,4 +1,4 @@
-// Package ui is SwiftFetch's Gio window loop: it lays out screens over the
+// Package ui is Goti's Gio window loop: it lays out screens over the
 // latest state.Snapshot and turns their Intents into App commands, pickers,
 // clipboard operations and so on.
 package ui
@@ -6,9 +6,9 @@ package ui
 import (
 	"gioui.org/io/key"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/ui/screens"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/ui/screens"
+	"github.com/raptordnj/goti/internal/ui/state"
 )
 
 // IntentPasteAdd opens the Add dialog prefilled from the clipboard (Ctrl+V

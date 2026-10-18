@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/tests/faultserver"
+	"github.com/raptordnj/goti/tests/faultserver"
 )
 
 const cliSeed = 7
@@ -28,7 +28,7 @@ func TestCLIGetAndList(t *testing.T) {
 	const size = 300 << 10
 	srv := faultserver.New(t, faultserver.Options{Size: size, Seed: cliSeed, ETag: "v1"})
 	dir, data := t.TempDir(), t.TempDir()
-	env := map[string]string{"SWIFTFETCH_DATA_DIR": data}
+	env := map[string]string{"GOTI_DATA_DIR": data}
 	url := srv.URL + "/file?token=secret"
 	code, out, errs := runCLI(t, env, "get", url, "-o", dir)
 	if code != 0 {
@@ -53,7 +53,7 @@ func TestCLIGetAndList(t *testing.T) {
 
 func TestCLIExplain(t *testing.T) {
 	srv := faultserver.New(t, faultserver.Options{Size: 64 << 20, Seed: cliSeed, ETag: "v1", IgnoreRanges: true})
-	env := map[string]string{"SWIFTFETCH_DATA_DIR": t.TempDir()}
+	env := map[string]string{"GOTI_DATA_DIR": t.TempDir()}
 	code, out, errs := runCLI(t, env, "explain", srv.URL+"/file?token=secret")
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errs)
@@ -67,7 +67,7 @@ func TestCLIExplain(t *testing.T) {
 }
 
 func TestCLIUsageError(t *testing.T) {
-	env := map[string]string{"SWIFTFETCH_DATA_DIR": t.TempDir()}
+	env := map[string]string{"GOTI_DATA_DIR": t.TempDir()}
 	for _, args := range [][]string{{"get"}, {}, {"bogus"}, {"get", "http://x/y", "--conns", "99"}, {"get", "http://x/y", "--limit", "abc"}, {"rm"}} {
 		if code, _, _ := runCLI(t, env, args...); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
@@ -77,7 +77,7 @@ func TestCLIUsageError(t *testing.T) {
 
 func TestCLIConnsWarning(t *testing.T) {
 	srv := faultserver.New(t, faultserver.Options{Size: 64 << 10, Seed: cliSeed, ETag: "v1"})
-	env := map[string]string{"SWIFTFETCH_DATA_DIR": t.TempDir()}
+	env := map[string]string{"GOTI_DATA_DIR": t.TempDir()}
 	code, _, errs := runCLI(t, env, "get", srv.URL+"/file", "-o", t.TempDir(), "--conns", "4")
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errs)
@@ -93,7 +93,7 @@ func TestCLIConnsWarning(t *testing.T) {
 
 func TestCLIRm(t *testing.T) {
 	srv := faultserver.New(t, faultserver.Options{Size: 10 << 10, Seed: cliSeed, ETag: "v1"})
-	env := map[string]string{"SWIFTFETCH_DATA_DIR": t.TempDir()}
+	env := map[string]string{"GOTI_DATA_DIR": t.TempDir()}
 	if code, _, e := runCLI(t, env, "get", srv.URL+"/file", "-o", t.TempDir()); code != 0 {
 		t.Fatal(e)
 	}
@@ -108,7 +108,7 @@ func TestCLIRm(t *testing.T) {
 }
 
 func TestCLIInvalidURLIsUsageError(t *testing.T) {
-	env := map[string]string{"SWIFTFETCH_DATA_DIR": t.TempDir()}
+	env := map[string]string{"GOTI_DATA_DIR": t.TempDir()}
 	for _, args := range [][]string{{"get", "ftp://x/y"}, {"get", "notaurl"}, {"explain", "http://"}} {
 		if code, _, _ := runCLI(t, env, args...); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
@@ -117,7 +117,7 @@ func TestCLIInvalidURLIsUsageError(t *testing.T) {
 }
 
 func TestConnsWarningAfterValidation(t *testing.T) {
-	env := map[string]string{"SWIFTFETCH_DATA_DIR": t.TempDir()}
+	env := map[string]string{"GOTI_DATA_DIR": t.TempDir()}
 	_, _, errs := runCLI(t, env, "get", "notaurl", "--conns", "4")
 	if strings.Contains(errs, connsWarning) {
 		t.Fatalf("warning printed despite invalid URL: %q", errs)
@@ -150,7 +150,7 @@ func startSlowGet(t *testing.T, env map[string]string, srvURL, limit string) (si
 
 func TestCLISignals(t *testing.T) {
 	srv := faultserver.New(t, faultserver.Options{Size: 2 << 20, Seed: cliSeed, ETag: "v1"})
-	env := map[string]string{"SWIFTFETCH_DATA_DIR": t.TempDir()}
+	env := map[string]string{"GOTI_DATA_DIR": t.TempDir()}
 
 	t.Run("first press pauses with exit 3", func(t *testing.T) {
 		sigs, exits, code := startSlowGet(t, env, srv.URL, "200K")
@@ -227,7 +227,7 @@ func TestWatchSignalsWindowResets(t *testing.T) {
 
 func TestCLIResumeRemoteChangedPrompt(t *testing.T) {
 	srv := faultserver.New(t, faultserver.Options{Size: 16 << 20, Seed: cliSeed, ETag: "v1"})
-	env := map[string]string{"SWIFTFETCH_DATA_DIR": t.TempDir()}
+	env := map[string]string{"GOTI_DATA_DIR": t.TempDir()}
 	pause := func() {
 		sigs, _, code := startSlowGet(t, env, srv.URL, "4M")
 		time.Sleep(1200 * time.Millisecond)
@@ -252,5 +252,16 @@ func TestCLIResumeRemoteChangedPrompt(t *testing.T) {
 	c, errs = resume(strings.NewReader("y\n"))
 	if c != 0 {
 		t.Fatalf("accept: exit %d stderr %q", c, errs)
+	}
+}
+
+func TestCLILegacyDataDirEnv(t *testing.T) {
+	dir := t.TempDir()
+	env := map[string]string{"SWIFTFETCH_DATA_DIR": dir}
+	if code, _, errs := runCLI(t, env, "list"); code != 0 {
+		t.Fatalf("exit %d: %s", code, errs)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "goti.db")); err != nil {
+		t.Fatalf("legacy env dir not used: %v", err)
 	}
 }

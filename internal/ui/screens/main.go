@@ -13,11 +13,12 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/platform"
-	"github.com/raptordnj/swiftfetch/internal/ui/components"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/brand"
+	"github.com/raptordnj/goti/internal/platform"
+	"github.com/raptordnj/goti/internal/ui/components"
+	"github.com/raptordnj/goti/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // Breakpoint is the width at and above which details show as a right pane.
@@ -170,7 +171,7 @@ func (m *Main) header(gtx layout.Context, th *theme.Theme, snap *state.Snapshot)
 	}
 	return layout.UniformInset(theme.S4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(bold(th, theme.Display, th.Text, "SwiftFetch")),
+			layout.Rigid(bold(th, theme.Display, th.Text, brand.Name)),
 			layout.Rigid(layout.Spacer{Width: theme.S3}.Layout),
 			layout.Flexed(1, Label(th, theme.Caption, th.TextMuted, agg)),
 			layout.Rigid(Row(

@@ -1,4 +1,4 @@
-// Package theme holds SwiftFetch's design tokens (spec §8): spacing, type
+// Package theme holds Goti's design tokens (spec §8): spacing, type
 // scale, radii and the light/dark palettes.
 package theme
 
@@ -8,7 +8,7 @@ import (
 	"gioui.org/font"
 	"gioui.org/text"
 	"gioui.org/unit"
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // Spacing scale.
@@ -112,7 +112,7 @@ type Theme struct {
 
 // New builds a Theme with the embedded Inter fonts.
 func New(p Palette) *Theme {
-	return &Theme{Palette: p, Shaper: text.NewShaper(text.WithCollection(InterFaces()))}
+	return &Theme{Palette: p, Shaper: text.NewShaper(text.WithCollection(Faces()))}
 }
 
 // WithAlpha returns c with alpha a (for hover/pressed/disabled overlays).

@@ -1,4 +1,4 @@
-// Package tray is the SwiftFetch system tray (spec §9): Show, a status line,
+// Package tray is the Goti system tray (spec §9): Show, a status line,
 // Pause all/Resume all and Quit.
 package tray
 
@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/ui/state"
 )
 
 // readyTimeout bounds how long Start waits for the tray to come up.

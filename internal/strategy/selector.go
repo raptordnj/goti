@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/config"
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 // Confidence expresses how trustworthy the evidence behind a Decision is

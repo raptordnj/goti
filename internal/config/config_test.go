@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/goti/internal/domain"
 )
 
 func TestDefaultsMatchSpec(t *testing.T) {
@@ -117,17 +117,17 @@ func TestValidateAcceptsBoundaries(t *testing.T) {
 	}
 }
 
-func TestDefaultDataDir(t *testing.T) {
+func TestDefaultDataDirGoti(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux-specific")
 	}
 	t.Setenv("XDG_DATA_HOME", "/xdg/data")
-	if got, want := DefaultDataDir(), filepath.Join("/xdg/data", "swiftfetch"); got != want {
+	if got, want := DefaultDataDir(), filepath.Join("/xdg/data", "goti"); got != want {
 		t.Errorf("DefaultDataDir = %q, want %q", got, want)
 	}
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("HOME", "/home/u")
-	if got, want := DefaultDataDir(), filepath.Join("/home/u", ".local", "share", "swiftfetch"); got != want {
+	if got, want := DefaultDataDir(), filepath.Join("/home/u", ".local", "share", "goti"); got != want {
 		t.Errorf("fallback DefaultDataDir = %q, want %q", got, want)
 	}
 }

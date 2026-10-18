@@ -1,4 +1,4 @@
-// Package dialogs holds SwiftFetch's modal dialogs. Like screens they are
+// Package dialogs holds Goti's modal dialogs. Like screens they are
 // passive: they keep widget state and return screens.Intent values.
 package dialogs
 
@@ -11,12 +11,12 @@ import (
 	"gioui.org/layout"
 	"gioui.org/widget"
 
-	"github.com/raptordnj/swiftfetch/internal/app"
-	"github.com/raptordnj/swiftfetch/internal/ui/anim"
-	"github.com/raptordnj/swiftfetch/internal/ui/components"
-	"github.com/raptordnj/swiftfetch/internal/ui/screens"
-	"github.com/raptordnj/swiftfetch/internal/ui/state"
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/ui/anim"
+	"github.com/raptordnj/goti/internal/ui/components"
+	"github.com/raptordnj/goti/internal/ui/screens"
+	"github.com/raptordnj/goti/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 // BadURL is the inline URL validation message.

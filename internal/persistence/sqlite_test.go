@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/raptordnj/swiftfetch/internal/domain"
-	"github.com/raptordnj/swiftfetch/internal/downloader"
-	"github.com/raptordnj/swiftfetch/internal/persistence"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/internal/persistence"
 )
 
 var _ downloader.Store = (*persistence.DB)(nil)
 
 func open(t *testing.T) (*persistence.DB, string) {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "data", "swiftfetch.db")
+	p := filepath.Join(t.TempDir(), "data", "goti.db")
 	db, err := persistence.Open(p)
 	if err != nil {
 		t.Fatal(err)
