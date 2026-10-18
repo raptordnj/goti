@@ -298,13 +298,17 @@ func (e *Engine) idle(ctx context.Context, id string, fn func(r *taskRun) error)
 }
 
 // Hold moves a queued task to paused so a scheduler will not start it. A
-// paused task is left unchanged; a running task yields ErrAlreadyRunning.
+// paused task is left unchanged; a running task yields ErrAlreadyRunning and
+// any other state domain.ErrInvalidTransition.
 func (e *Engine) Hold(ctx context.Context, id string) error {
 	return e.idle(ctx, id, func(r *taskRun) error {
-		if r.t.State == domain.StatePaused {
+		switch r.t.State {
+		case domain.StatePaused:
 			return nil
+		case domain.StateQueued:
+			return r.setState(ctx, domain.StatePaused, "held")
 		}
-		return r.setState(ctx, domain.StatePaused, "held")
+		return fmt.Errorf("%w: %s -> %s", domain.ErrInvalidTransition, r.t.State, domain.StatePaused)
 	})
 }
 

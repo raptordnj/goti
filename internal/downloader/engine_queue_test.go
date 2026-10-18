@@ -84,6 +84,18 @@ func TestHoldCompletedInvalid(t *testing.T) {
 	}
 }
 
+func TestHoldCrashStateInvalid(t *testing.T) {
+	f := slowFixture(t, nil)
+	task := f.add(t, AddRequest{})
+	f.setStored(t, task.ID, domain.StateDownloading)
+	if err := f.e.Hold(context.Background(), task.ID); !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Fatalf("got %v", err)
+	}
+	if got := f.task(t, task.ID).State; got != domain.StateDownloading {
+		t.Fatalf("state %s", got)
+	}
+}
+
 func TestRequeue(t *testing.T) {
 	f := slowFixture(t, nil)
 	ctx := context.Background()
