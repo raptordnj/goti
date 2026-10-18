@@ -169,29 +169,26 @@ func (q *Queue) restoreQuitIDs(ctx context.Context) {
 	}
 }
 
-// recordQuitIDs persists the tasks that are running or queued (and not
-// paused by the user) so the next start can resume them.
+// recordQuitIDs persists the tasks that are queued, or running and still in
+// an active state, and not paused by the user, so the next start can resume
+// them. The DB state decides: a run that has just completed may still be in
+// q.running until its goroutine returns, and must not be recorded.
 func (q *Queue) recordQuitIDs(ctx context.Context) {
 	if q.d.KV == nil {
 		return
 	}
-	q.mu.Lock()
-	ids := []string{}
-	seen := map[string]bool{}
-	for id := range q.running {
-		if !q.held[id] {
-			ids = append(ids, id)
-			seen[id] = true
-		}
-	}
-	q.mu.Unlock()
 	tasks, err := q.d.Store.ListTasks(ctx)
 	if err != nil {
 		q.d.Logger.Warn("queue record resume list", "err", err)
 	}
+	ids := []string{}
 	q.mu.Lock()
 	for _, t := range tasks {
-		if !seen[t.ID] && !q.held[t.ID] && (t.State == domain.StateQueued || q.d.Engine.Running(t.ID)) {
+		if q.held[t.ID] {
+			continue
+		}
+		running := q.running[t.ID] != nil || q.d.Engine.Running(t.ID)
+		if t.State == domain.StateQueued || (running && Interrupted(t.State)) {
 			ids = append(ids, t.ID)
 		}
 	}

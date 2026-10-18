@@ -604,8 +604,24 @@ func TestQueueResumeAfterQuit(t *testing.T) {
 				t.Fatalf("user-paused task state %s", st)
 			}
 			if v, _ := f.db.GetSetting(context.Background(), resumeKey); v != "[]" {
-				t.Fatalf("resume key not cleared: %q", v)
+				t.Fatalf("resume key not cleared: %q ids=%v states=%s %s %s", v, ids, f.task(t, ids[0]).State, f.task(t, ids[1]).State, f.task(t, ids[2]).State)
 			}
 		})
+	}
+}
+
+// TestQueueQuitSkipsFinishedRun: a run whose task already completed but whose
+// goroutine has not yet left q.running is not recorded for resume.
+func TestQueueQuitSkipsFinishedRun(t *testing.T) {
+	f := newQFixture(t)
+	id := f.add(t)
+	f.setState(t, id, domain.StateCompleted)
+	q := f.queue(t, 1, true)
+	q.mu.Lock()
+	q.running[id] = make(chan struct{})
+	q.mu.Unlock()
+	q.recordQuitIDs(context.Background())
+	if v, _ := f.db.GetSetting(context.Background(), resumeKey); v != "[]" {
+		t.Fatalf("recorded %q", v)
 	}
 }
