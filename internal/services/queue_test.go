@@ -411,17 +411,26 @@ func TestQueueShutdown(t *testing.T) {
 
 // fakeEngine fails the first Run of each task with ErrLockedElsewhere.
 type fakeEngine struct {
-	mu    sync.Mutex
-	runs  map[string]int
-	store *fakeStore
+	mu          sync.Mutex
+	runs        map[string]int
+	rejected    int
+	lockedFirst bool
+	store       *fakeStore
 }
 
-func (e *fakeEngine) Run(_ context.Context, id string) error {
+func (e *fakeEngine) RunQueued(_ context.Context, id string, allow bool) error {
 	e.mu.Lock()
 	e.runs[id]++
 	n := e.runs[id]
 	e.mu.Unlock()
-	if n == 1 {
+	st := e.store.get(id)
+	if st != domain.StateQueued && !(allow && Interrupted(st)) {
+		e.mu.Lock()
+		e.rejected++
+		e.mu.Unlock()
+		return downloader.ErrNotRunnable
+	}
+	if n == 1 && e.lockedFirst {
 		return downloader.ErrLockedElsewhere
 	}
 	e.store.set(id, domain.StateCompleted)
@@ -442,6 +451,16 @@ type fakeStore struct {
 	mu    sync.Mutex
 	tasks map[string]*domain.Task
 	lists int
+	// afterList, if set, runs (under mu) after the snapshot of the ListTasks
+	// call numbered afterListN (1-based); the first call is Start's restore.
+	afterList  func()
+	afterListN int
+}
+
+func (s *fakeStore) get(id string) domain.State {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tasks[id].State
 }
 
 func (s *fakeStore) set(id string, st domain.State) {
@@ -463,12 +482,15 @@ func (s *fakeStore) ListTasks(context.Context) ([]*domain.Task, error) {
 		c := *t
 		out = append(out, &c)
 	}
+	if s.afterList != nil && s.lists == s.afterListN {
+		s.afterList()
+	}
 	return out, nil
 }
 
 func TestQueueLockedElsewhere(t *testing.T) {
 	st := &fakeStore{tasks: map[string]*domain.Task{"t1": {ID: "t1", State: domain.StateQueued}}}
-	eng := &fakeEngine{runs: map[string]int{}, store: st}
+	eng := &fakeEngine{runs: map[string]int{}, store: st, lockedFirst: true}
 	bus := events.NewBus(10, domain.RealClock{})
 	sub := bus.Subscribe()
 	defer sub.Close()
@@ -502,4 +524,25 @@ func TestQueueLockedElsewhere(t *testing.T) {
 	}
 	clk.Advance(5 * time.Second)
 	waitFor(t, 5*time.Second, "retry", func() bool { return eng.runCount("t1") == 2 })
+}
+
+func TestQueueExternalHoldBetweenListAndRun(t *testing.T) {
+	st := &fakeStore{tasks: map[string]*domain.Task{"t1": {ID: "t1", State: domain.StateQueued}}}
+	// Simulates another process (or a direct engine Hold) pausing the task
+	// after the scheduler listed it but before it ran.
+	st.afterList = func() { st.tasks["t1"].State = domain.StatePaused }
+	st.afterListN = 2 // the scheduler's first scan
+	eng := &fakeEngine{runs: map[string]int{}, store: st}
+	q := NewQueue(QueueDeps{Engine: eng, Store: st, Clock: clocktest.New(time.Unix(0, 0)), MaxSimultaneous: 1, ResumeOnStartup: true})
+	q.Start(context.Background())
+	waitFor(t, 5*time.Second, "run attempt", func() bool { return eng.runCount("t1") == 1 })
+	if err := q.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s := st.get("t1"); s != domain.StatePaused {
+		t.Fatalf("state %s", s)
+	}
+	if eng.rejected != 1 {
+		t.Fatalf("rejected %d", eng.rejected)
+	}
 }

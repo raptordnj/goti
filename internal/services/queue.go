@@ -23,7 +23,7 @@ const (
 
 // QueueEngine is the engine surface the queue drives; *downloader.Engine satisfies it.
 type QueueEngine interface {
-	Run(ctx context.Context, id string) error
+	RunQueued(ctx context.Context, id string, allowInterrupted bool) error
 	Pause(id string) bool
 	Hold(ctx context.Context, id string) error
 	Requeue(ctx context.Context, id string) error
@@ -159,14 +159,14 @@ func (q *Queue) schedule(runCtx, lctx context.Context) {
 		if !eligible || q.held[id] || q.running[id] != nil || now.Before(q.skipUntil[id]) || q.d.Engine.Running(id) {
 			continue
 		}
-		delete(q.wanted, id)
+		allow := q.wanted[id]
 		delete(q.skipUntil, id)
 		done := make(chan struct{})
 		q.running[id] = done
 		q.runs.Add(1)
 		go func() {
 			defer q.runs.Done()
-			err := q.d.Engine.Run(runCtx, id)
+			err := q.d.Engine.RunQueued(runCtx, id, allow)
 			q.finished(id, done, err)
 		}()
 	}
@@ -177,6 +177,11 @@ func (q *Queue) finished(id string, done chan struct{}, err error) {
 	q.mu.Lock()
 	delete(q.running, id)
 	close(done)
+	if !locked {
+		// Started, or dropped as not runnable (state changed since the scan):
+		// either way the interrupted-resume request is consumed.
+		delete(q.wanted, id)
+	}
 	if locked {
 		q.skipUntil[id] = q.d.Clock.Now().Add(lockedSkip)
 	}
@@ -307,7 +312,8 @@ func (q *Queue) ResumeAll(ctx context.Context) error {
 	var errs []error
 	for _, t := range tasks {
 		if t.State == domain.StatePaused {
-			if err := q.d.Engine.Requeue(ctx, t.ID); err != nil {
+			if err := q.d.Engine.Requeue(ctx, t.ID); err != nil &&
+				!errors.Is(err, domain.ErrInvalidTransition) && !errors.Is(err, downloader.ErrAlreadyRunning) {
 				errs = append(errs, err)
 			}
 		}

@@ -201,3 +201,45 @@ func TestRunning(t *testing.T) {
 		t.Fatal("running after Run")
 	}
 }
+
+func TestRunQueuedRejectsPaused(t *testing.T) {
+	f := slowFixture(t, func(c *config.Config) {})
+	f.srv.SetOptions(func(o *faultserver.Options) { o.Size = 64 << 10 })
+	ctx := context.Background()
+	for _, st := range []domain.State{domain.StatePaused, domain.StateFailed, domain.StateCompleted} {
+		task := f.add(t, AddRequest{})
+		f.setStored(t, task.ID, st)
+		if err := f.e.RunQueued(ctx, task.ID, true); !errors.Is(err, ErrNotRunnable) {
+			t.Fatalf("%s: %v", st, err)
+		}
+		if got := f.task(t, task.ID).State; got != st {
+			t.Fatalf("state changed to %s", got)
+		}
+	}
+	// Interrupted only when allowed.
+	task := f.add(t, AddRequest{})
+	f.setStored(t, task.ID, domain.StateDownloading)
+	if err := f.e.RunQueued(ctx, task.ID, false); !errors.Is(err, ErrNotRunnable) {
+		t.Fatalf("interrupted disallowed: %v", err)
+	}
+	if got := f.task(t, task.ID).State; got != domain.StateDownloading {
+		t.Fatalf("state %s", got)
+	}
+	if err := f.run2(task.ID, true); err != nil {
+		t.Fatalf("interrupted allowed: %v", err)
+	}
+	// Queued runs.
+	q := f.add(t, AddRequest{})
+	if err := f.run2(q.ID, false); err != nil {
+		t.Fatalf("queued: %v", err)
+	}
+	if got := f.task(t, q.ID).State; got != domain.StateCompleted {
+		t.Fatalf("queued state %s", got)
+	}
+}
+
+func (f *engFixture) run2(id string, allow bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return f.e.RunQueued(ctx, id, allow)
+}

@@ -47,6 +47,10 @@ var ErrLockedElsewhere = errors.New("task is locked by another process")
 // errTaskCompleted is returned by Cancel for a task that already completed.
 var errTaskCompleted = domain.NewError(domain.KindPermanent, "task already completed", "remove it instead", nil)
 
+// ErrNotRunnable is returned by RunQueued when the task is not in a state it
+// may start from; the task is left unchanged.
+var ErrNotRunnable = errors.New("task is not queued")
+
 // ErrShuttingDown is returned by Run after Shutdown.
 var ErrShuttingDown = errors.New("engine shutting down")
 
@@ -418,6 +422,34 @@ func (e *Engine) Run(ctx context.Context, id string) error {
 	t, err := e.d.Store.GetTask(rctx, id)
 	if err != nil {
 		return err
+	}
+	return newTaskRun(e, t).run(rctx)
+}
+
+// RunQueued is Run for a scheduler: it starts the task only if it is queued,
+// or (with allowInterrupted) left in inspecting/downloading/retrying/verifying
+// by a crash; otherwise it returns ErrNotRunnable without changing state, so
+// a pause made after the scheduler picked the task is not overridden.
+func (e *Engine) RunQueued(ctx context.Context, id string, allowInterrupted bool) error {
+	rctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	h, err := e.acquire(id, cancel)
+	if err != nil {
+		return err
+	}
+	defer e.release(id, h)
+	t, err := e.d.Store.GetTask(rctx, id)
+	if err != nil {
+		return err
+	}
+	switch t.State {
+	case domain.StateQueued:
+	case domain.StateInspecting, domain.StateDownloading, domain.StateRetrying, domain.StateVerifying:
+		if !allowInterrupted {
+			return fmt.Errorf("%w: %s", ErrNotRunnable, t.State)
+		}
+	default:
+		return fmt.Errorf("%w: %s", ErrNotRunnable, t.State)
 	}
 	return newTaskRun(e, t).run(rctx)
 }
