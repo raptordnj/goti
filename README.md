@@ -11,7 +11,33 @@ memory use small: about 20 MiB RSS idle, and at most 40 MiB during an
 The engine and CLI contain no GUI code and no cgo; the GUI
 lives in `cmd/goti` (described below, needs cgo). Engine builds use `CGO_ENABLED=0`.
 
-## Build and install
+## Install
+
+Download the file for your platform from the
+[Releases](https://github.com/raptordnj/goti/releases) page. Each release has a
+`SHA256SUMS` file; check a download with `sha256sum -c SHA256SUMS --ignore-missing`.
+
+| Platform | File | Install |
+|---|---|---|
+| Omarchy, Arch, Manjaro | `goti_<ver>_linux_<arch>.pkg.tar.zst` | `sudo pacman -U goti_*_linux_amd64.pkg.tar.zst` |
+| Debian 12+, Ubuntu 22.04+ | `goti_<ver>_linux_<arch>.deb` | `sudo apt install ./goti_*.deb` |
+| Fedora, openSUSE | `goti_<ver>_linux_<arch>.rpm` | `sudo dnf install ./goti_*.rpm` |
+| Other Linux (glibc 2.35+) | `goti_<ver>_linux_<arch>.tar.gz` | extract, then `./install-linux.sh` (installs for the current user) |
+| Windows 10/11 | `Goti_<ver>_windows_amd64_setup.exe` | run the installer (a portable `.zip` is also provided) |
+| macOS 11+ | `Goti_<ver>_macos_<arch>.dmg` | open the dmg, drag Goti to Applications |
+
+Linux packages are built for `amd64` and `arm64`; macOS for `arm64` (Apple
+silicon) and `amd64` (Intel). Each package contains the GUI (`goti`) and the
+CLI (`goti-cli`). On macOS the CLI is a separate `goti-cli_<ver>_macos_<arch>.tar.gz`.
+
+The builds are not code-signed by a paid certificate:
+
+- Windows: SmartScreen may say "Windows protected your PC". Click
+  **More info**, then **Run anyway**.
+- macOS: the app is ad-hoc signed but not notarized. On first launch,
+  right-click Goti in Applications and choose **Open**, then **Open** again.
+
+## Build from source
 
 Requires Go 1.27.
 
@@ -279,6 +305,19 @@ make build    # CGO_ENABLED=0 CLI build
 make cross    # six OS/arch targets
 gofmt -l .  &&  go vet ./...
 ```
+
+## Releases
+
+Pushing a version tag builds every platform and publishes a GitHub Release
+(`.github/workflows/release.yml`):
+
+```sh
+git tag vX.Y.Z && git push origin vX.Y.Z
+```
+
+A tag containing `-` (for example `v1.2.0-rc.1`) is published as a pre-release.
+To build the artifacts without a release, run the workflow by hand:
+`gh workflow run release.yml -f version=X.Y.Z` (artifacts are attached to the run).
 
 ## Local smoke benchmarks
 
