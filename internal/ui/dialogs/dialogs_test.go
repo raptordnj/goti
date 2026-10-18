@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"gioui.org/io/key"
 	"gioui.org/layout"
 
 	"github.com/raptordnj/swiftfetch/internal/app"
@@ -107,5 +108,26 @@ func TestConfirmCancel(t *testing.T) {
 	hs.frame(func(gtx layout.Context) { got = d.Layout(gtx, th, s, now) })
 	if !slices.Contains(got, screens.Intent(screens.IntentCommand{Cmd: app.CancelTask{ID: "a"}})) || d.ShowsDeletePartial {
 		t.Fatalf("intents %#v", got)
+	}
+}
+
+func TestAddURLErrorClearsOnEdit(t *testing.T) {
+	var a Add
+	a.Open("bad", "/dl")
+	hs := newHarness(800, 600)
+	s := &state.Snapshot{}
+	lay := func(gtx layout.Context) { a.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	hs.click(&a.add, lay)
+	hs.frame(lay)
+	if a.urlErr == "" {
+		t.Fatal("expected error")
+	}
+	hs.gtx.Execute(key.FocusCmd{Tag: &a.url})
+	hs.frame(lay)
+	hs.r.Queue(key.EditEvent{Text: "x"})
+	hs.frame(lay)
+	if a.urlErr != "" {
+		t.Fatalf("error not cleared: %q", a.urlErr)
 	}
 }

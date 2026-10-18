@@ -84,9 +84,12 @@ func (d *Details) content(th *theme.Theme, v state.TaskView, now time.Time) []la
 	if v.TotalKnown {
 		size = platform.FormatBytes(v.Total)
 	}
-	resume := "Not resumable"
-	if v.CanResume || v.CanPause {
-		resume = "Resumable"
+	ranges, resume := "No", "Not supported"
+	if v.RangesSupported {
+		ranges = "Yes"
+	}
+	if v.Resumable {
+		resume = "Supported"
 	}
 	ws := []layout.Widget{
 		Row(func(gtx layout.Context) layout.Dimensions {
@@ -103,6 +106,10 @@ func (d *Details) content(th *theme.Theme, v state.TaskView, now time.Time) []la
 	}
 	if v.Strategy != "" {
 		ws = append(ws, field(th, "Strategy", v.Strategy+metaSep+v.DecisionSummary))
+	}
+	ws = append(ws, field(th, "Range support", ranges))
+	if v.ChunksTotal > 0 {
+		ws = append(ws, field(th, "Chunks", fmt.Sprintf("%d of %d done", v.ChunksDone, v.ChunksTotal)))
 	}
 	ws = append(ws, field(th, "Resume", resume))
 	if v.VerifyResult != "" {

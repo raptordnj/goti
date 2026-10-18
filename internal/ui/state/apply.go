@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -27,18 +28,19 @@ const (
 )
 
 type entry struct {
-	t          domain.Task
-	progress   bool // live progress received
-	downloaded int64
-	total      int64
-	totalKnown bool
-	speed      float64
-	eta        *time.Duration
-	conns      int
-	summary    string
-	retries    []AttemptView
-	waitingNet bool
-	retryAt    time.Time
+	t                       domain.Task
+	chunksDone, chunksTotal int
+	progress                bool // live progress received
+	downloaded              int64
+	total                   int64
+	totalKnown              bool
+	speed                   float64
+	eta                     *time.Duration
+	conns                   int
+	summary                 string
+	retries                 []AttemptView
+	waitingNet              bool
+	retryAt                 time.Time
 }
 
 // model is the mutable state folded from events; only the Run goroutine touches it.
@@ -218,6 +220,8 @@ func view(e *entry, interrupted bool) TaskView {
 		Downloaded: e.downloaded, Total: e.total, TotalKnown: e.totalKnown, Percent: -1,
 		Strategy: string(t.Strategy), DecisionSummary: e.summary, VerifyResult: t.VerifyResult,
 		Retries: append([]AttemptView(nil), e.retries...), CreatedAt: t.CreatedAt,
+		RangesSupported: rangesProven(t.DecisionJSON), ChunksDone: e.chunksDone, ChunksTotal: e.chunksTotal,
+		Resumable:  rangesProven(t.DecisionJSON) && t.Validators.Kind() != domain.ValidatorNone,
 		waitingNet: e.waitingNet && t.State == domain.StateRetrying, retryAt: e.retryAt,
 	}
 	if t.State == domain.StateDownloading && !interrupted {
@@ -336,6 +340,39 @@ type TaskStore interface {
 	ListTasks(ctx context.Context) ([]*domain.Task, error)
 	GetTask(ctx context.Context, id string) (*domain.Task, error)
 	ListAttempts(ctx context.Context, id string) ([]domain.Attempt, error)
+	LoadSegments(ctx context.Context, taskID string) ([]domain.SegmentRecord, error)
+}
+
+// rangesProven reads the "ranges_proven" flag of a strategy decision.
+func rangesProven(js []byte) bool {
+	var d struct {
+		RangesProven bool `json:"ranges_proven"`
+	}
+	return len(js) > 0 && json.Unmarshal(js, &d) == nil && d.RangesProven
+}
+
+// loadTask re-reads attempts and segments of t and stores it in m.
+func loadTask(ctx context.Context, m *model, st TaskStore, t *domain.Task) error {
+	att, err := st.ListAttempts(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	if att == nil {
+		att = []domain.Attempt{}
+	}
+	segs, err := st.LoadSegments(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	m.setTask(t, att)
+	e := m.tasks[t.ID]
+	e.chunksDone, e.chunksTotal = 0, len(segs)
+	for _, sg := range segs {
+		if sg.Done {
+			e.chunksDone++
+		}
+	}
+	return nil
 }
 
 func reloadAll(ctx context.Context, m *model, st TaskStore) error {
@@ -346,14 +383,9 @@ func reloadAll(ctx context.Context, m *model, st TaskStore) error {
 	seen := make(map[string]bool, len(ts))
 	for _, t := range ts {
 		seen[t.ID] = true
-		att, err := st.ListAttempts(ctx, t.ID)
-		if err != nil {
+		if err := loadTask(ctx, m, st, t); err != nil {
 			return err
 		}
-		if att == nil {
-			att = []domain.Attempt{}
-		}
-		m.setTask(t, att)
 	}
 	for id := range m.tasks {
 		if !seen[id] {
@@ -372,15 +404,7 @@ func reloadOne(ctx context.Context, m *model, st TaskStore, id string) error {
 	if err != nil {
 		return err
 	}
-	att, err := st.ListAttempts(ctx, id)
-	if err != nil {
-		return err
-	}
-	if att == nil {
-		att = []domain.Attempt{}
-	}
-	m.setTask(t, att)
-	return nil
+	return loadTask(ctx, m, st, t)
 }
 
 func liveState(s domain.State) bool {

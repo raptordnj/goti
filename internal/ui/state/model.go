@@ -51,6 +51,9 @@ type TaskView struct {
 	LastError, LastErrorAction                                    string
 	VerifyResult                                                  string
 	Retries                                                       []AttemptView
+	RangesSupported                                               bool // decision "ranges_proven"
+	Resumable                                                     bool // ranges + a usable validator
+	ChunksDone, ChunksTotal                                       int  // persisted segments
 	CanPause, CanResume, CanCancel, CanRetry, CanRestart, CanOpen bool
 	CreatedAt                                                     time.Time
 

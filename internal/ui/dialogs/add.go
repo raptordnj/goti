@@ -54,14 +54,18 @@ func (a *Add) SetDestDir(path string) { a.destDir = path }
 // SetError shows an error returned by the App for the submitted command.
 func (a *Add) SetError(msg string) { a.submitErr = msg }
 
-func submitted(gtx layout.Context, e *widget.Editor) bool {
+// editorEvents drains e's events, reporting submit and text change.
+func editorEvents(gtx layout.Context, e *widget.Editor) (submit, changed bool) {
 	for {
 		ev, ok := e.Update(gtx)
 		if !ok {
-			return false
+			return submit, changed
 		}
-		if _, ok := ev.(widget.SubmitEvent); ok {
-			return true
+		switch ev.(type) {
+		case widget.SubmitEvent:
+			submit = true
+		case widget.ChangeEvent:
+			changed = true
 		}
 	}
 }
@@ -75,8 +79,12 @@ func (a *Add) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot, _ t
 	if a.cancel.Clicked(gtx) {
 		out = append(out, screens.IntentCloseDialog{})
 	}
-	sub := submitted(gtx, &a.url)
-	sub = submitted(gtx, &a.name) || sub
+	sub, changed := editorEvents(gtx, &a.url)
+	if changed {
+		a.urlErr = ""
+	}
+	sub2, _ := editorEvents(gtx, &a.name)
+	sub = sub || sub2
 	if a.add.Clicked(gtx) || sub {
 		u := strings.TrimSpace(a.url.Text())
 		if err := validURL(u); err != nil {

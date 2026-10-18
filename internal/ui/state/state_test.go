@@ -85,6 +85,7 @@ func TestApplyRetry(t *testing.T) {
 type fakeStore struct {
 	mu    sync.Mutex
 	tasks map[string]*domain.Task
+	segs  map[string][]domain.SegmentRecord
 	err   error
 }
 
@@ -113,6 +114,47 @@ func (f *fakeStore) GetTask(_ context.Context, id string) (*domain.Task, error) 
 	return &c, nil
 }
 func (f *fakeStore) ListAttempts(context.Context, string) ([]domain.Attempt, error) { return nil, nil }
+func (f *fakeStore) LoadSegments(_ context.Context, id string) ([]domain.SegmentRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.segs[id], nil
+}
+
+func TestRangeResumeChunksMapping(t *testing.T) {
+	a := task("a", domain.StatePaused, 0)
+	a.DecisionJSON = []byte(`{"ranges_proven":true}`)
+	a.Validators = domain.Validators{ETag: "x", ETagStrong: true}
+	b := task("b", domain.StateQueued, 1)
+	b.DecisionJSON = []byte(`{"ranges_proven":true}`) // no validators
+	c := task("c", domain.StateFailed, 2)             // no decision
+	fs := &fakeStore{tasks: map[string]*domain.Task{"a": a, "b": b, "c": c},
+		segs: map[string][]domain.SegmentRecord{"a": {{Done: true}, {Done: true}, {}, {}}}}
+	m := newModelState()
+	if err := reloadAll(context.Background(), m, fs); err != nil {
+		t.Fatal(err)
+	}
+	s := build(m, t0)
+	va, vb, vc := find(s, "a"), find(s, "b"), find(s, "c")
+	if !va.RangesSupported || !va.Resumable || va.ChunksDone != 2 || va.ChunksTotal != 4 {
+		t.Errorf("a %+v", *va)
+	}
+	if !vb.RangesSupported || vb.Resumable || vb.ChunksTotal != 0 {
+		t.Errorf("b %+v", *vb)
+	}
+	if vc.RangesSupported || vc.Resumable {
+		t.Errorf("c %+v", *vc)
+	}
+	fs.put(c)
+	fs.mu.Lock()
+	fs.segs["c"] = []domain.SegmentRecord{{Done: true}}
+	fs.mu.Unlock()
+	if err := reloadOne(context.Background(), m, fs, "c"); err != nil {
+		t.Fatal(err)
+	}
+	if v := find(build(m, t0), "c"); v.ChunksDone != 1 || v.ChunksTotal != 1 {
+		t.Errorf("reloadOne c %+v", *v)
+	}
+}
 
 func TestResyncReloads(t *testing.T) {
 	m := newModel(task("a", domain.StateQueued, 0))

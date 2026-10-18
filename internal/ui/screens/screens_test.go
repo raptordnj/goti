@@ -178,3 +178,24 @@ func TestRenderedGlyphsCovered(t *testing.T) {
 	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, &state.Snapshot{}, now) })
 	assertGlyphs(t, RecordedTexts())
 }
+
+func TestDetailsRangeChunksResume(t *testing.T) {
+	recordTexts(t)
+	v := task("a", domain.StatePaused, state.SectionPaused)
+	v.RangesSupported, v.Resumable, v.ChunksDone, v.ChunksTotal = true, true, 3, 8
+	w := task("b", domain.StateQueued, state.SectionQueued)
+	d := Details{ID: "a"}
+	hs := newHarness(500, 1200)
+	hs.frame(func(gtx layout.Context) { d.Layout(gtx, th, snapOf(v, w), now) })
+	for _, s := range []string{"Yes", "3 of 8 done", "Supported"} {
+		if !hasText(t, s) {
+			t.Errorf("a: missing %q in %v", s, RecordedTexts())
+		}
+	}
+	RecordTexts(true)
+	d.ID = "b"
+	hs.frame(func(gtx layout.Context) { d.Layout(gtx, th, snapOf(v, w), now) })
+	if !hasText(t, "No") || !hasText(t, "Not supported") || hasText(t, "Chunks") {
+		t.Errorf("b: %v", RecordedTexts())
+	}
+}
