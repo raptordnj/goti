@@ -246,9 +246,9 @@ be set from 0.5 to 30 s.
 
 Goti was previously named SwiftFetch. On first start, both `goti` and `goti-cli`
 rename the old data directory (`$XDG_DATA_HOME/swiftfetch`, `%LOCALAPPDATA%\SwiftFetch`,
-`~/Library/Application Support/SwiftFetch`) to the new location, and rename
-`swiftfetch.db` to `goti.db`. They never copy and delete. If the rename fails, or an old
-instance is still running, the old directory is used for that run and a warning is
+`~/Library/Application Support/SwiftFetch`) to the new location. They never copy and delete, and the
+database keeps its `swiftfetch.db` name (new installs use `goti.db`). If the rename fails,
+or an old GUI, CLI or database user is still active, the old directory is used for that run and a warning is
 logged. `SWIFTFETCH_DATA_DIR` is still honoured as a deprecated fallback for
 `GOTI_DATA_DIR`.
 
