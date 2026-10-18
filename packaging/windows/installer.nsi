@@ -337,9 +337,9 @@ SectionEnd
 Section "Goti (required)" SecMain
   SectionIn RO
   SetOutPath "$INSTDIR"
-  File "${SRCDIR}/${APPEXE}"
+  File "${SRCDIR}\${APPEXE}"
   SetOutPath "$INSTDIR\bin"
-  File "${SRCDIR}/goti-cli.exe"
+  File "${SRCDIR}\goti-cli.exe"
   SetOutPath "$INSTDIR"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
