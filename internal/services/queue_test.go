@@ -394,6 +394,15 @@ func TestQueueShutdown(t *testing.T) {
 	q := f.queue(t, 2, true)
 	q.Start(context.Background())
 	waitFor(t, 10*time.Second, "2 running", func() bool { return f.runningCount(ids) == 2 })
+	// Running registers before the task leaves queued; wait for the state too.
+	waitFor(t, 10*time.Second, "2 started", func() bool {
+		for _, id := range ids {
+			if f.task(t, id).State == domain.StateQueued {
+				return false
+			}
+		}
+		return true
+	})
 	if err := q.Shutdown(context.Background()); err != nil {
 		t.Fatal(err)
 	}
