@@ -1,4 +1,4 @@
-.PHONY: test race lint fuzz bench build cross gui screenshots
+.PHONY: package-linux test race lint fuzz bench build cross gui screenshots
 
 test:
 	go test -timeout 30m ./...
@@ -37,3 +37,9 @@ gui:
 
 screenshots:
 	go test -tags snapshot ./internal/ui/snapshot -run TestScreenshots -args -update
+
+# package-linux builds dist/goti_$(VERSION)_linux_$(ARCH).{deb,rpm,pkg.tar.zst,tar.gz}.
+VERSION ?= 0.0.0-dev
+ARCH ?= $(shell go env GOARCH)
+package-linux:
+	scripts/package-linux.sh $(VERSION) $(ARCH)

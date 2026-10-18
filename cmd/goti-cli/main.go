@@ -42,6 +42,10 @@ const (
 	maxConnsFlag = 16
 )
 
+// version is the build version; release builds set it with
+// -ldflags "-X main.version=...".
+var version = "dev"
+
 const usageText = `usage: goti-cli <command> [flags]
 
 commands:
@@ -122,6 +126,9 @@ func runWith(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	}
 	cmd, rest := args[0], args[1:]
 	switch cmd {
+	case "--version", "-version":
+		outf(stdout, "goti-cli %s\n", version)
+		return exitOK
 	case "get", "explain", "list", "resume", "rm":
 	case "-h", "--help", "help":
 		outp(stdout, usageText)

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Goti
+GenericName=Download Manager
+Comment=Fast by design. Reliable by nature.
+Exec=goti
+Icon=goti
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=download;manager;resume;torrent;গতি;
+StartupWMClass=io.github.raptordnj.Goti

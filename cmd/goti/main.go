@@ -168,6 +168,10 @@ func (r *runtime) close() error {
 // set it with -ldflags "-X main.version=...".
 var version = "dev"
 
+// appID is the reverse-DNS application ID; Gio sets it as the Wayland app_id
+// so the desktop entry (io.github.raptordnj.Goti) matches the window.
+const appID = "io.github.raptordnj.Goti"
+
 // dataDirFor resolves the data directory: --data-dir, then GOTI_DATA_DIR,
 // the deprecated legacy env var, and the default (migrating the legacy
 // data dir). It runs before the DB is opened or any lock is taken.
@@ -183,7 +187,13 @@ func dataDirFor(flagDir string, env map[string]string, log *slog.Logger) string 
 
 func main() {
 	flagDir := flag.String("data-dir", "", "data directory (env "+config.EnvDataDir+")")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("goti", version)
+		return
+	}
+	gioapp.ID = appID
 	env := map[string]string{}
 	for _, k := range []string{config.EnvDataDir, config.LegacyEnvDataDir} {
 		env[k] = os.Getenv(k)
