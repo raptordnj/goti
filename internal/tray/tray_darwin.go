@@ -2,23 +2,15 @@
 
 package tray
 
-import "fyne.io/systray"
+// hostAvailable is false on macOS: the tray stays disabled (closing the window
+// quits) until a main-thread integration is verified on a Mac. systray's
+// start func (C.nativeStart) creates the NSStatusItem on the calling thread,
+// but Gio's app.Main owns the main thread, so starting it from a goroutine can
+// abort the process instead of timing out.
+func hostAvailable() bool { return false }
 
-func hostAvailable() bool { return true }
+// launch is never reached on macOS (hostAvailable is false).
+func launch(func()) (end func()) { return func() {} }
 
-// launch uses RunWithExternalLoop because Gio's app.Main owns the main thread
-// and NSApplication run loop.
-//
-// macOS caveat: start (C.nativeStart) creates the NSStatusItem by calling the
-// delegate's applicationDidFinishLaunching directly on the calling thread,
-// which AppKit requires to be the main thread; here it is called from a
-// goroutine. This cannot be exercised on Linux and is covered by the manual
-// macOS check (spec §9). If the tray does not become ready within 2 s, Start
-// reports it unavailable and closing the window quits.
-func launch(onReady func()) (end func()) {
-	start, end := systray.RunWithExternalLoop(onReady, nil)
-	start()
-	return end
-}
-
-func icon() []byte { return iconPNG }
+// setup is never reached on macOS (hostAvailable is false).
+func setup(Deps, <-chan struct{}) {}

@@ -472,11 +472,24 @@ func TestTrayNoticeOnce(t *testing.T) {
 				bus.Publish(events.Progress{ID: "a", Downloaded: int64(i), Total: 10, TotalKnown: true})
 				clk.Advance(200 * time.Millisecond)
 			}
-			time.Sleep(50 * time.Millisecond)
-			n := 0
-			for _, ts := range st.Load().Toasts {
-				if ts.Text == notice {
-					n++
+			// Poll until the toast count and marks are stable for 5 checks
+			// (or a 2 s deadline), instead of a fixed sleep.
+			count := func() int {
+				n := 0
+				for _, ts := range st.Load().Toasts {
+					if ts.Text == notice {
+						n++
+					}
+				}
+				return n
+			}
+			n, m, stable := count(), marks.Load(), 0
+			for deadline := time.Now().Add(2 * time.Second); stable < 5 && time.Now().Before(deadline); {
+				time.Sleep(5 * time.Millisecond)
+				if nn, mm := count(), marks.Load(); nn == n && mm == m {
+					stable++
+				} else {
+					n, m, stable = nn, mm, 0
 				}
 			}
 			cancel()
