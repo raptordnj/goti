@@ -22,8 +22,8 @@ import (
 // quitRetryFor bounds how long a window close retries a full command buffer.
 const quitRetryFor = 5 * time.Second
 
-// sendQuit sends Quit, retrying a full buffer for up to quitRetryFor.
-func sendQuit(send func(app.Command) bool, log *slog.Logger) bool {
+// SendQuit sends Quit, retrying a full buffer for up to quitRetryFor.
+func SendQuit(send func(app.Command) bool, log *slog.Logger) bool {
 	deadline := time.Now().Add(quitRetryFor)
 	for !send(app.Quit{}) {
 		if time.Now().After(deadline) {

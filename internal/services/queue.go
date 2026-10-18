@@ -3,6 +3,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"sort"
@@ -19,6 +20,9 @@ const (
 	lockedSkip    = 30 * time.Second
 	pausePoll     = 2 * time.Millisecond
 	lockedWarning = "running in another Goti process"
+	// resumeKey holds a JSON array of the task IDs that were running or
+	// queued (not user-paused) when the app last quit.
+	resumeKey = "resume_on_start"
 )
 
 // QueueEngine is the engine surface the queue drives; *downloader.Engine satisfies it.
@@ -36,6 +40,11 @@ type QueueDeps struct {
 	Engine QueueEngine
 	Store  interface {
 		ListTasks(context.Context) ([]*domain.Task, error)
+	}
+	// KV persists the IDs to resume after a normal quit (nil disables it).
+	KV interface {
+		GetSetting(ctx context.Context, key string) (string, error)
+		PutSetting(ctx context.Context, key, value string) error
 	}
 	Bus             *events.Bus
 	Clock           domain.Clock
@@ -127,6 +136,70 @@ func (q *Queue) restore(ctx context.Context) {
 				q.d.Logger.Warn("queue restore hold", "id", t.ID, "err", err)
 			}
 		}
+	}
+	q.restoreQuitIDs(ctx)
+}
+
+// restoreQuitIDs requeues the tasks the last normal quit paused, when
+// ResumeOnStartup is on, then clears the record either way.
+func (q *Queue) restoreQuitIDs(ctx context.Context) {
+	if q.d.KV == nil {
+		return
+	}
+	raw, err := q.d.KV.GetSetting(ctx, resumeKey)
+	if err != nil || raw == "" {
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			q.d.Logger.Warn("queue restore resume list", "err", err)
+		}
+		return
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		q.d.Logger.Warn("queue restore resume list", "err", err)
+	}
+	if q.d.ResumeOnStartup {
+		for _, id := range ids {
+			if err := q.d.Engine.Requeue(ctx, id); err != nil {
+				q.d.Logger.Warn("queue restore requeue", "id", id, "err", err)
+			}
+		}
+	}
+	if err := q.d.KV.PutSetting(ctx, resumeKey, "[]"); err != nil {
+		q.d.Logger.Warn("queue clear resume list", "err", err)
+	}
+}
+
+// recordQuitIDs persists the tasks that are running or queued (and not
+// paused by the user) so the next start can resume them.
+func (q *Queue) recordQuitIDs(ctx context.Context) {
+	if q.d.KV == nil {
+		return
+	}
+	q.mu.Lock()
+	ids := []string{}
+	seen := map[string]bool{}
+	for id := range q.running {
+		if !q.held[id] {
+			ids = append(ids, id)
+			seen[id] = true
+		}
+	}
+	q.mu.Unlock()
+	tasks, err := q.d.Store.ListTasks(ctx)
+	if err != nil {
+		q.d.Logger.Warn("queue record resume list", "err", err)
+	}
+	q.mu.Lock()
+	for _, t := range tasks {
+		if !seen[t.ID] && !q.held[t.ID] && (t.State == domain.StateQueued || q.d.Engine.Running(t.ID)) {
+			ids = append(ids, t.ID)
+		}
+	}
+	q.mu.Unlock()
+	sort.Strings(ids)
+	b, _ := json.Marshal(ids)
+	if err := q.d.KV.PutSetting(ctx, resumeKey, string(b)); err != nil {
+		q.d.Logger.Warn("queue record resume list", "err", err)
 	}
 }
 
@@ -346,6 +419,7 @@ func (q *Queue) Shutdown(ctx context.Context) error {
 	q.mu.Unlock()
 	var err error
 	if first {
+		q.recordQuitIDs(ctx)
 		err = q.d.Engine.Shutdown(ctx)
 	}
 	if cancel != nil {

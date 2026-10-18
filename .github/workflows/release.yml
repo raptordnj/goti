@@ -94,21 +94,11 @@ jobs:
             if (-not (Test-Path (Join-Path $nsis 'makensis.exe'))) { choco install nsis -y --no-progress }
             Add-Content $env:GITHUB_PATH $nsis
           }
-      - name: Exclude workspace from Defender real-time scan
-        # Defender can quarantine the freshly built unsigned Goti.exe mid-build.
-        shell: pwsh
-        run: Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE
       - name: Package
         shell: pwsh
         run: |
           makensis /VERSION
           pwsh scripts/package-windows.ps1 -Version ($env:VERSION -replace '^v', '')
-      - name: Diagnostics on failure
-        if: failure()
-        shell: pwsh
-        run: |
-          Get-ChildItem -Recurse dist -ErrorAction SilentlyContinue | Format-Table FullName, Length
-          Get-MpThreatDetection -ErrorAction SilentlyContinue | Format-List
       - uses: actions/upload-artifact@v7
         with:
           name: goti-windows-amd64

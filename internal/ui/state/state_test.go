@@ -504,3 +504,22 @@ func TestTrayNoticeOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestRetryHistoryRedacted(t *testing.T) {
+	const msg = `Get "https://bob:hunter2@s3.example.com/f?X-Amz-Signature=deadbeef42": timeout`
+	m := newModelState()
+	m.setTask(task("a", domain.StateRetrying, 0), []domain.Attempt{{At: t0, Message: msg}})
+	m.setTask(task("b", domain.StateRetrying, 0), nil)
+	apply(m, events.RetryScheduled{ID: "b", Attempt: 1, Delay: time.Second, Reason: msg}, t0)
+	s := build(m, t0)
+	for _, id := range []string{"a", "b"} {
+		v := find(s, id)
+		if len(v.Retries) != 1 {
+			t.Fatalf("%s: retries %+v", id, v.Retries)
+		}
+		dump := fmt.Sprintf("%+v", *v)
+		if strings.Contains(dump, "hunter2") || strings.Contains(dump, "deadbeef42") {
+			t.Fatalf("%s leaked: %s", id, dump)
+		}
+	}
+}

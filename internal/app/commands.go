@@ -30,6 +30,9 @@ type (
 	ResumeAll struct{}
 	// SaveSettings validates, persists and live-applies settings.
 	SaveSettings struct{ S settings.Settings }
+	// MarkTrayNoticeShown sets TrayNoticeShown on the settings current when
+	// it runs and saves them, so it cannot revert an earlier queued save.
+	MarkTrayNoticeShown struct{}
 	// Quit shuts the queue down and ends Run.
 	Quit struct{}
 )
@@ -45,3 +48,5 @@ func (PauseAll) isCommand()     {}
 func (ResumeAll) isCommand()    {}
 func (SaveSettings) isCommand() {}
 func (Quit) isCommand()         {}
+
+func (MarkTrayNoticeShown) isCommand() {}

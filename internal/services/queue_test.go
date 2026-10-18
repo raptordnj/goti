@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -27,6 +28,7 @@ type qFixture struct {
 	srv   *faultserver.Server
 	bus   *events.Bus
 	clock *clocktest.FakeClock
+	cfg   config.Config
 
 	mu  sync.Mutex
 	evs []events.Event
@@ -67,8 +69,17 @@ func newQFixture(t *testing.T) *qFixture {
 		}
 	}()
 	t.Cleanup(func() { cancel(); <-done })
-	f.e = downloader.NewEngine(downloader.EngineDeps{
-		Store: db, Config: cfg, Bus: f.bus, Clock: domain.RealClock{},
+	f.cfg = cfg
+	f.e = f.newEngine()
+	return f
+}
+
+// newEngine builds an engine over the fixture's DB and server, e.g. to model
+// the next app start after the previous engine shut down.
+func (f *qFixture) newEngine() *downloader.Engine {
+	cfg := f.cfg
+	return downloader.NewEngine(downloader.EngineDeps{
+		Store: f.db, Config: cfg, Bus: f.bus, Clock: domain.RealClock{},
 		Global: ratelimit.NewBandwidth(0), Conns: ratelimit.NewSemaphore(cfg.GlobalMaxConnections),
 		NewClient: func(allowPrivate bool) *http.Client {
 			return transport.NewClient(transport.ClientOptions{
@@ -76,7 +87,6 @@ func newQFixture(t *testing.T) *qFixture {
 			})
 		},
 	})
-	return f
 }
 
 func (f *qFixture) add(t *testing.T) string {
@@ -108,7 +118,7 @@ func (f *qFixture) setState(t *testing.T, id string, s domain.State) {
 
 func (f *qFixture) queue(t *testing.T, max int, resume bool) *Queue {
 	t.Helper()
-	q := NewQueue(QueueDeps{Engine: f.e, Store: f.db, Bus: f.bus, Clock: f.clock, MaxSimultaneous: max, ResumeOnStartup: resume})
+	q := NewQueue(QueueDeps{Engine: f.e, Store: f.db, KV: f.db, Bus: f.bus, Clock: f.clock, MaxSimultaneous: max, ResumeOnStartup: resume})
 	t.Cleanup(func() { _ = q.Shutdown(context.Background()) })
 	return q
 }
@@ -553,5 +563,49 @@ func TestQueueExternalHoldBetweenListAndRun(t *testing.T) {
 	}
 	if eng.rejected != 1 {
 		t.Fatalf("rejected %d", eng.rejected)
+	}
+}
+
+// TestQueueResumeAfterQuit: tasks running or queued at a normal quit resume
+// on the next start when ResumeOnStartup is on; user-paused ones never do.
+func TestQueueResumeAfterQuit(t *testing.T) {
+	for _, resume := range []bool{true, false} {
+		t.Run(fmt.Sprint("resume=", resume), func(t *testing.T) {
+			f := newQFixture(t)
+			ids := addN(t, f, 3)
+			q := f.queue(t, 2, true)
+			if err := q.Pause(context.Background(), ids[2]); err != nil {
+				t.Fatal(err)
+			}
+			q.Start(context.Background())
+			waitFor(t, 10*time.Second, "2 started", func() bool {
+				return f.task(t, ids[0]).State != domain.StateQueued && f.task(t, ids[1]).State != domain.StateQueued
+			})
+			if err := q.Shutdown(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			f.waitState(t, time.Second, domain.StatePaused, ids...)
+
+			f.e = f.newEngine()
+			q2 := f.queue(t, 3, resume)
+			q2.Start(context.Background())
+			if resume {
+				f.waitState(t, 30*time.Second, domain.StateCompleted, ids[0], ids[1])
+			} else {
+				time.Sleep(300 * time.Millisecond)
+				q2.Enqueue("")
+				time.Sleep(300 * time.Millisecond)
+				f.waitState(t, time.Second, domain.StatePaused, ids[0], ids[1])
+			}
+			if err := q2.Shutdown(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if st := f.task(t, ids[2]).State; st != domain.StatePaused {
+				t.Fatalf("user-paused task state %s", st)
+			}
+			if v, _ := f.db.GetSetting(context.Background(), resumeKey); v != "[]" {
+				t.Fatalf("resume key not cleared: %q", v)
+			}
+		})
 	}
 }

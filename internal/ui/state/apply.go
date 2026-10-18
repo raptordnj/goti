@@ -71,7 +71,7 @@ func (m *model) setTask(t *domain.Task, attempts []domain.Attempt) {
 	if attempts != nil {
 		e.retries = e.retries[:0]
 		for i, a := range attempts {
-			e.retries = append(e.retries, AttemptView{At: a.At, Attempt: i + 1, Kind: a.Kind.String(), Message: a.Message, Delay: a.Delay})
+			e.retries = append(e.retries, AttemptView{At: a.At, Attempt: i + 1, Kind: a.Kind.String(), Message: redactText(a.Message), Delay: a.Delay})
 		}
 		e.retries = capRetries(e.retries)
 	}
@@ -133,7 +133,7 @@ func apply(m *model, ev events.Event, now time.Time) result {
 		}
 	case events.RetryScheduled:
 		if en, ok := m.tasks[e.ID]; ok {
-			msg := e.Reason
+			msg := redactText(e.Reason)
 			en.retries = capRetries(append(en.retries, AttemptView{At: now, Attempt: e.Attempt, Kind: e.Kind.String(), Message: msg, Delay: e.Delay}))
 			en.retryAt = now.Add(e.Delay)
 			en.waitingNet = e.Reason == reasonWaitingForNetwork

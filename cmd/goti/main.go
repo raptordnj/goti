@@ -88,7 +88,7 @@ func build(dataDir string) (*runtime, error) {
 		Store: db, Config: s.Apply(cfg), Bus: bus, Clock: clock, Logger: log,
 		Global: bw, Conns: ratelimit.NewSemaphore(cfg.GlobalMaxConnections),
 	})
-	q := services.NewQueue(services.QueueDeps{Engine: eng, Store: db, Bus: bus, Clock: clock, Logger: log,
+	q := services.NewQueue(services.QueueDeps{Engine: eng, Store: db, KV: db, Bus: bus, Clock: clock, Logger: log,
 		MaxSimultaneous: s.MaxSimultaneous, ResumeOnStartup: s.ResumeOnStartup})
 	a := app.New(app.Deps{Engine: eng, Queue: q, Settings: repo, Bandwidth: bw, Bus: bus, Logger: log, BaseConfig: cfg})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -124,9 +124,7 @@ func (r *runtime) run() error {
 
 // markTrayNotice persists TrayNoticeShown so the tray notice shows once.
 func (r *runtime) markTrayNotice() {
-	s := r.app.Settings()
-	s.TrayNoticeShown = true
-	r.app.Send(app.SaveSettings{S: s})
+	r.app.Send(app.MarkTrayNoticeShown{})
 }
 
 // showWindow opens the main window, or raises it when one is already open;
@@ -185,6 +183,21 @@ func dataDirFor(flagDir string, env map[string]string, log *slog.Logger) string 
 	return config.ResolveDataDir(env, log)
 }
 
+// startupMessage is the text shown when the app cannot start.
+func startupMessage(err error) string {
+	if errors.Is(err, platform.ErrAlreadyRunning) {
+		return platform.ErrAlreadyRunning.Error()
+	}
+	return "goti: " + err.Error()
+}
+
+// forwardSignals sends Quit for each signal until sigs is closed.
+func forwardSignals(sigs <-chan os.Signal, send func(app.Command) bool, log *slog.Logger) {
+	for range sigs {
+		ui.SendQuit(send, log)
+	}
+}
+
 func main() {
 	flagDir := flag.String("data-dir", "", "data directory (env "+config.EnvDataDir+")")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -200,22 +213,16 @@ func main() {
 	}
 	dataDir := dataDirFor(*flagDir, env, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	rt, err := build(dataDir)
-	if errors.Is(err, platform.ErrAlreadyRunning) {
-		fmt.Fprintln(os.Stderr, platform.ErrAlreadyRunning)
-		os.Exit(1)
-	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "goti:", err)
-		os.Exit(1)
+		msg := startupMessage(err)
+		fmt.Fprintln(os.Stderr, msg)
+		// GUI builds have no console on Windows/macOS: show it in a window too.
+		ui.ShowFatal(msg) // exits 1 once closed
 	}
 
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		for range sigs {
-			rt.app.Send(app.Quit{})
-		}
-	}()
+	go forwardSignals(sigs, rt.app.Send, rt.log)
 
 	trayStop := make(chan func(), 1)
 	go func() {

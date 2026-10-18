@@ -379,7 +379,7 @@ func RunWindow(d WindowDeps) error {
 				c.log.Error("window error", "err", e.Err)
 			}
 			if !(d.App.Settings().CloseToTray && d.TrayAvailable != nil && d.TrayAvailable()) {
-				sendQuit(d.App.Send, c.log)
+				SendQuit(d.App.Send, c.log)
 			}
 			if d.OnClosed != nil {
 				d.OnClosed()

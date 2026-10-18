@@ -221,3 +221,22 @@ func TestAppCommandPanicRecovered(t *testing.T) {
 		t.Fatal(r.Err)
 	}
 }
+
+// TestAppMarkTrayNoticeKeepsQueuedSave: the notice flag merges into the
+// settings current when it runs, so an earlier queued save is not reverted.
+func TestAppMarkTrayNoticeKeepsQueuedSave(t *testing.T) {
+	f := newFx(t, 0)
+	s := f.app.Settings()
+	s.MaxSimultaneous = 7
+	f.app.Send(SaveSettings{S: s})
+	f.app.Send(MarkTrayNoticeShown{})
+	f.run(t)
+	f.next(t, result("SaveSettings"))
+	if r := f.next(t, result("MarkTrayNoticeShown")).(events.CommandResult); r.Err != nil {
+		t.Fatal(r.Err)
+	}
+	got := settings.NewRepo(f.db, nil).Load(context.Background())
+	if got.MaxSimultaneous != 7 || !got.TrayNoticeShown || f.app.Settings() != got {
+		t.Fatalf("saved %+v cached %+v", got, f.app.Settings())
+	}
+}

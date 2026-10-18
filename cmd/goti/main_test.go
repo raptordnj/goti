@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -71,5 +73,36 @@ func TestDataDirFlagOverridesEnv(t *testing.T) {
 	}
 	if got := dataDirFor("", map[string]string{"GOTI_DATA_DIR": "/env"}, nil); got != "/env" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// TestForwardSignalsRetriesFullBuffer: a signal is not dropped while the
+// command buffer is briefly full.
+func TestForwardSignalsRetriesFullBuffer(t *testing.T) {
+	var calls, quits atomic.Int64
+	send := func(c app.Command) bool {
+		if calls.Add(1) <= 3 {
+			return false
+		}
+		if _, ok := c.(app.Quit); ok {
+			quits.Add(1)
+		}
+		return true
+	}
+	sigs := make(chan os.Signal, 1)
+	sigs <- os.Interrupt
+	close(sigs)
+	forwardSignals(sigs, send, slog.New(slog.DiscardHandler))
+	if quits.Load() != 1 {
+		t.Fatalf("quits %d after %d sends", quits.Load(), calls.Load())
+	}
+}
+
+func TestStartupMessage(t *testing.T) {
+	if got := startupMessage(platform.ErrAlreadyRunning); got != platform.ErrAlreadyRunning.Error() {
+		t.Fatalf("lock: %q", got)
+	}
+	if got := startupMessage(errors.New("cannot open database: boom")); got != "goti: cannot open database: boom" {
+		t.Fatalf("db: %q", got)
 	}
 }

@@ -139,6 +139,13 @@ func (q *Queue) Shutdown(ctx) error                    // stop scheduling; Engin
   settles them); `paused` stay paused. Without it: `queued` tasks are `Hold`-ed to `paused`;
   interrupted ones are not scheduled and show as **Interrupted** (Paused section; actions Resume /
   Cancel / Remove). Their DB state is settled when the user resumes (via `Run`).
+- **Resume after a normal quit (amendment, final review):** a quit pauses running tasks, so on
+  `Queue.Shutdown` (before the engine shuts down) the queue records the IDs of tasks that are running
+  or `queued` and not paused by the user, as a JSON array under the settings KV key
+  `resume_on_start`. On the next start, `restore` reads that list: with `ResumeOnStartup` it
+  `Requeue`s each ID (in addition to the crash-interrupted handling above) so the scheduler starts
+  them; without it they stay `paused`. The key is cleared (`[]`) either way. User-paused tasks are
+  never in the list.
 - **Retry** = Resume on a failed task. **Restart from zero** (remote changed) = `AllowRestart` + Resume.
 - **Cancel/Remove** go straight to the engine (they already stop a running Run), then wake.
 

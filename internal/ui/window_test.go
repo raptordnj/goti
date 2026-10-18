@@ -127,7 +127,7 @@ func TestFolderPickerResult(t *testing.T) {
 
 func TestSendQuitBounded(t *testing.T) {
 	n := 0
-	ok := sendQuit(func(app.Command) bool { n++; return n == 3 }, slog.Default())
+	ok := SendQuit(func(app.Command) bool { n++; return n == 3 }, slog.Default())
 	if !ok || n != 3 {
 		t.Fatalf("ok=%v n=%d", ok, n)
 	}

@@ -72,6 +72,57 @@ func parsedRanges(t *testing.T, logs []faultserver.RequestLog) []domain.ByteRang
 	return out
 }
 
+// requestRanges returns every logged closed Range as [start,end), in request order.
+func requestRanges(t *testing.T, logs []faultserver.RequestLog) []domain.ByteRange {
+	t.Helper()
+	var out []domain.ByteRange
+	for _, r := range logs {
+		var a, b int64
+		if _, err := fmt.Sscanf(r.Range, "bytes=%d-%d", &a, &b); err != nil {
+			t.Fatalf("unparsable Range %q", r.Range)
+		}
+		out = append(out, domain.ByteRange{Start: a, End: b + 1})
+	}
+	return out
+}
+
+// checkRequestRanges accepts a request that overlaps no earlier request, or
+// one contained in an earlier request: work stealing (possibly repeated) and
+// the endgame re-request the remainder of a range whose request is still in
+// flight. Partial overlaps are rejected.
+func checkRequestRanges(rs []domain.ByteRange) error {
+	for i, r := range rs {
+		if containedInAny(r, rs[:i]) {
+			continue
+		}
+		for _, p := range rs[:i] {
+			if r.Start < p.End && p.Start < r.End {
+				return fmt.Errorf("overlapping ranges %v and %v", p, r)
+			}
+		}
+	}
+	return nil
+}
+
+func containedInAny(r domain.ByteRange, earlier []domain.ByteRange) bool {
+	for _, p := range earlier {
+		if p.Start <= r.Start && r.End <= p.End {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCheckRequestRanges(t *testing.T) {
+	// Double split: [0,8) splits at 4, then the owner [0,4) splits at 2.
+	if err := checkRequestRanges([]domain.ByteRange{{Start: 0, End: 8}, {Start: 4, End: 8}, {Start: 2, End: 4}, {Start: 8, End: 9}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRequestRanges([]domain.ByteRange{{Start: 0, End: 8}, {Start: 6, End: 10}}); err == nil {
+		t.Fatal("partial overlap accepted")
+	}
+}
+
 func TestMultipartCorrect(t *testing.T) {
 	const size = 40 << 20
 	f := newMPFixture(t, faultserver.Options{Size: size}, 2, 8, 4<<20)
@@ -88,17 +139,8 @@ func TestMultipartCorrect(t *testing.T) {
 			t.Fatalf("If-Range %q", r.IfRange)
 		}
 	}
-	rs := parsedRanges(t, logs)
-	end := int64(0) // furthest End among ranges so far
-	for i, r := range rs {
-		// A work-stealing split re-requests the suffix of a range whose request
-		// is already in flight (the owner stops at the new boundary); that
-		// suffix ends where its parent ends. Anything else must not overlap.
-		stolenTail := i > 0 && r.End == rs[i-1].End && r.Start > rs[i-1].Start
-		if r.Start < end && !stolenTail {
-			t.Fatalf("overlapping ranges %v and %v", rs[i-1], r)
-		}
-		end = max(end, r.End)
+	if err := checkRequestRanges(requestRanges(t, logs)); err != nil {
+		t.Fatal(err)
 	}
 	if got := f.bytes.Load(); got != size {
 		t.Fatalf("onBytes %d, want %d", got, size)

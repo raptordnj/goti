@@ -156,6 +156,10 @@ func (a *App) exec(ctx context.Context, c Command) (string, error) {
 		return "", q.ResumeAll(ctx)
 	case SaveSettings:
 		return "", a.save(ctx, c.S)
+	case MarkTrayNoticeShown:
+		s := a.Settings()
+		s.TrayNoticeShown = true
+		return "", a.save(ctx, s)
 	}
 	return "", fmt.Errorf("unknown command %T", c)
 }
