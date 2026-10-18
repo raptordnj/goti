@@ -54,6 +54,12 @@ type StrategyChanged struct {
 // Warning is a non-fatal notice.
 type Warning struct{ ID, Msg string }
 
+// CommandResult reports the outcome of a user command (Err nil on success).
+type CommandResult struct {
+	Cmd, ID string
+	Err     error
+}
+
 // Resync tells a consumer it missed events and must re-read a snapshot.
 type Resync struct{}
 
@@ -74,6 +80,9 @@ func (e StrategyChanged) TaskID() string { return e.ID }
 
 // TaskID implements Event.
 func (e Warning) TaskID() string { return e.ID }
+
+// TaskID implements Event.
+func (e CommandResult) TaskID() string { return e.ID }
 
 // TaskID implements Event; Resync is not tied to a task.
 func (Resync) TaskID() string { return "" }

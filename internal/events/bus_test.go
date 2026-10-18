@@ -181,3 +181,19 @@ func TestNextContextCancel(t *testing.T) {
 		t.Fatal("expected ctx error")
 	}
 }
+
+func TestCommandResultDelivered(t *testing.T) {
+	b, s, _ := newTest(t)
+	errBoom := context.Canceled
+	b.Publish(CommandResult{Cmd: "pause", ID: "t1", Err: errBoom})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	ev, err := s.Next(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr, ok := ev.(CommandResult)
+	if !ok || cr.TaskID() != "t1" || cr.Cmd != "pause" || cr.Err != errBoom {
+		t.Fatalf("got %#v", ev)
+	}
+}
