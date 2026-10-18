@@ -90,7 +90,7 @@ func TestComponentsLayout(t *testing.T) {
 		nonZero(t, "Field", TextField(th, &e, "URL", "https://", "bad url")(newGtx()))
 		nonZero(t, "Dialog", DialogShell(th, nil, "Add", Button(th, &c, "a", Primary), Button(th, &c, "b", Ghost))(newGtx()))
 		toasts := []state.Toast{{Kind: state.ToastInfo, Text: "hi"}, {Kind: state.ToastSuccess, Text: "ok"}, {Kind: state.ToastError, Text: "no"}}
-		nonZero(t, "Toasts", ToastStack(th, toasts, make([]widget.Clickable, 3))(newGtx()))
+		nonZero(t, "Toasts", ToastStack(th, nil, toasts, make([]widget.Clickable, 3))(newGtx()))
 		for _, v := range fixtures() {
 			var w RowWidgets
 			nonZero(t, "TaskRow "+string(v.State), TaskRow(th, v, &w, now)(newGtx()))

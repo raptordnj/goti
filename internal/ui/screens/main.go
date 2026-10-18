@@ -60,6 +60,7 @@ type Main struct {
 	menu                    rowMenu
 	details                 Details
 	dismiss                 []widget.Clickable
+	toastFades              components.ToastFades
 }
 
 // Row returns the widget state of task id, creating it if needed.
@@ -113,7 +114,7 @@ func (m *Main) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot,
 			if len(m.dismiss) < len(snap.Toasts) {
 				m.dismiss = make([]widget.Clickable, len(snap.Toasts))
 			}
-			return layout.UniformInset(theme.S4).Layout(gtx, components.ToastStack(th, snap.Toasts, m.dismiss))
+			return layout.UniformInset(theme.S4).Layout(gtx, components.ToastStack(th, &m.toastFades, snap.Toasts, m.dismiss))
 		}),
 	)
 	return out

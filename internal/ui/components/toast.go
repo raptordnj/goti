@@ -3,10 +3,14 @@ package components
 import (
 	"image"
 	"image/color"
+	"time"
 
 	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/op/paint"
 	"gioui.org/widget"
 
+	"github.com/raptordnj/swiftfetch/internal/ui/anim"
 	"github.com/raptordnj/swiftfetch/internal/ui/icons"
 	"github.com/raptordnj/swiftfetch/internal/ui/state"
 	"github.com/raptordnj/swiftfetch/internal/ui/theme"
@@ -27,11 +31,58 @@ func toastStyle(th *theme.Theme, k state.ToastKind) (icons.Icon, color.NRGBA) {
 	return icons.ArrowDown, th.Accent
 }
 
+// ToastFades holds per-toast enter fades, keyed by toast identity. The
+// caller owns it; entries are dropped once their toast disappears.
+type ToastFades struct {
+	m map[toastKey]*anim.Fade
+}
+
+type toastKey struct {
+	text string
+	at   time.Time
+}
+
+// get returns the fade for t, creating a shown (entering) one if needed.
+func (f *ToastFades) get(t state.Toast) *anim.Fade {
+	if f.m == nil {
+		f.m = map[toastKey]*anim.Fade{}
+	}
+	k := toastKey{t.Text, t.At}
+	fd, ok := f.m[k]
+	if !ok {
+		fd = new(anim.Fade)
+		fd.Show(true)
+		f.m[k] = fd
+	}
+	return fd
+}
+
+// prune drops fades of toasts no longer present.
+func (f *ToastFades) prune(toasts []state.Toast) {
+	if len(f.m) == 0 {
+		return
+	}
+	live := make(map[toastKey]bool, len(toasts))
+	for _, t := range toasts {
+		live[toastKey{t.Text, t.At}] = true
+	}
+	for k := range f.m {
+		if !live[k] {
+			delete(f.m, k)
+		}
+	}
+}
+
 // ToastStack renders up to the newest three toasts bottom-centre within its
 // constraints (newest last); dismiss[i] is the close button of toasts[i]
-// (missing entries get no button).
-func ToastStack(th *theme.Theme, toasts []state.Toast, dismiss []widget.Clickable) layout.Widget {
+// (missing entries get no button). Each toast fades in with a 6-dp rise
+// driven by fades (nil: no animation). Dismissal is not faded (deferred:
+// the model removes toasts outright).
+func ToastStack(th *theme.Theme, fades *ToastFades, toasts []state.Toast, dismiss []widget.Clickable) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
+		if fades != nil {
+			fades.prune(toasts)
+		}
 		first := max(0, len(toasts)-maxToasts)
 		children := make([]layout.FlexChild, 0, 2*maxToasts)
 		for i := first; i < len(toasts); i++ {
@@ -44,6 +95,15 @@ func ToastStack(th *theme.Theme, toasts []state.Toast, dismiss []widget.Clickabl
 				children = append(children, layout.Rigid(layout.Spacer{Height: theme.S2}.Layout))
 			}
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if fades == nil {
+					return toast(gtx, th, t, btn)
+				}
+				a := fades.get(t).Alpha(gtx)
+				if a >= 1 {
+					return toast(gtx, th, t, btn)
+				}
+				defer paint.PushOpacity(gtx.Ops, a).Pop()
+				defer op.Offset(image.Pt(0, int(float32(gtx.Dp(6))*(1-a)))).Push(gtx.Ops).Pop()
 				return toast(gtx, th, t, btn)
 			}))
 		}
