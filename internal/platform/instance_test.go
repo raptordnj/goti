@@ -2,6 +2,8 @@ package platform
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"testing"
@@ -14,6 +16,9 @@ func TestInstanceLockTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l.Unlock()
+	if _, err := os.Stat(filepath.Join(dir, "gui.lock")); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := InstanceLock(dir); !errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("want ErrAlreadyRunning, got %v", err)
 	}

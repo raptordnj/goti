@@ -1,7 +1,6 @@
 package platform
 
 import (
-	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -23,7 +22,7 @@ func TestFormatSpeed(t *testing.T) {
 
 func TestFormatETA(t *testing.T) {
 	for in, want := range map[time.Duration]string{
-		45 * time.Second: "45 s", 179 * time.Second: "2 min", 3 * time.Minute: "3 min",
+		45 * time.Second: "45 s", -5 * time.Second: "0 s", 179 * time.Second: "2 min", 3 * time.Minute: "3 min",
 		65 * time.Minute: "1 h 05 min", time.Hour: "1 h 00 min",
 	} {
 		if got := FormatETA(in); got != want {
@@ -56,7 +55,7 @@ func TestMiddleEllipsisRunes(t *testing.T) {
 			}
 		}
 	}
-	if got := MiddleEllipsis("日本語のとても長いファイル名.zip", 8); !strings.HasSuffix(got, "….zip") || utf8.RuneCountInString(got) != 8 {
+	if got := MiddleEllipsis("日本語のとても長いファイル名.zip", 8); got != "日本語….zip" {
 		t.Errorf("got %q", got)
 	}
 }

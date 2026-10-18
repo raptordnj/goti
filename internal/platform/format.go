@@ -16,13 +16,13 @@ func FormatBytes(n int64) string {
 		return fmt.Sprintf("%d B", n)
 	}
 	v := float64(n)
-	for _, u := range []string{"KiB", "MiB", "GiB", "TiB", "PiB"} {
+	units := []string{"KiB", "MiB", "GiB", "TiB", "PiB"}
+	i := 0
+	for v/1024 >= 1024 && i < len(units)-1 {
 		v /= 1024
-		if v < 1024 || u == "PiB" {
-			return fmt.Sprintf("%.1f %s", v, u)
-		}
+		i++
 	}
-	return ""
+	return fmt.Sprintf("%.1f %s", v/1024, units[i])
 }
 
 // FormatSpeed renders bytes per second ("2.4 MiB/s").
@@ -35,6 +35,9 @@ func FormatSpeed(bps float64) string {
 
 // FormatETA renders a remaining duration compactly.
 func FormatETA(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
 	switch {
 	case d < time.Minute:
 		return fmt.Sprintf("%d s", int(d.Seconds()))
