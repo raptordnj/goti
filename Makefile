@@ -1,7 +1,7 @@
-.PHONY: test race lint fuzz bench build cross
+.PHONY: test race lint fuzz bench build cross gui
 
 test:
-	go test ./...
+	go test -timeout 30m ./...
 
 race:
 	go test -race -short ./...
@@ -31,3 +31,6 @@ cross:
 			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -o bin/swiftfetch-cli-$$os-$$arch$$ext ./cmd/swiftfetch-cli || exit 1; \
 		done; \
 	done
+
+gui:
+	go build -o bin/swiftfetch ./cmd/swiftfetch

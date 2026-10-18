@@ -6,8 +6,8 @@ strategy. Downloads are resumable, verified, and crash-safe. It is built to keep
 memory use small: about 20 MiB RSS idle, and at most 40 MiB during an
 8-connection download.
 
-This repository is sub-project 1 (the core engine). It contains no GUI code and
-does not use cgo (`CGO_ENABLED=0` builds).
+The engine and CLI contain no GUI code and no cgo; the GUI
+lives in `cmd/swiftfetch` (described below, needs cgo). Engine builds use `CGO_ENABLED=0`.
 
 ## Build and install
 
@@ -18,6 +18,74 @@ make build                      # bin/swiftfetch-cli
 go install github.com/raptordnj/swiftfetch/cmd/swiftfetch-cli@latest
 make cross                      # linux/windows/darwin x amd64/arm64 into bin/
 ```
+
+## GUI (swiftfetch)
+
+`cmd/swiftfetch` is a desktop GUI built with [Gio](https://gioui.org) on top of
+the engine, with a small download queue and a system tray. Unlike the engine and
+the CLI, it needs cgo and platform graphics headers.
+
+### Build dependencies
+
+- Linux (Arch): `pacman -S wayland libxkbcommon libxcursor libxfixes vulkan-headers mesa`
+- Linux (Debian/Ubuntu): `apt install gcc pkg-config libwayland-dev libx11-dev libxkbcommon-x11-dev libgles2-mesa-dev libegl1-mesa-dev libxcursor-dev libxfixes-dev libvulkan-dev`
+- Windows: a C toolchain is not required for Gio itself; a working GPU driver (Direct3D 11) is enough.
+- macOS: Xcode command line tools.
+
+### Build and run
+
+```sh
+go build ./cmd/swiftfetch      # or: make gui  (writes bin/swiftfetch)
+./swiftfetch --data-dir /path/to/data
+```
+
+The data directory defaults to the OS location listed under Configuration
+defaults. Override it with `--data-dir` or `SWIFTFETCH_DATA_DIR`.
+
+### Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| Tab / Shift+Tab | Move focus (visible focus ring) |
+| Ctrl+N | Add download |
+| Ctrl+V (outside text fields) | Add download prefilled from the clipboard |
+| Up / Down | Move selection |
+| Enter | Open details |
+| Space | Pause / resume selected |
+| Delete | Remove selected (asks for confirmation) |
+| Esc | Close dialog / details |
+| Ctrl+, | Settings |
+| Ctrl+Q | Quit |
+
+### Tray
+
+- KDE Plasma: works out of the box.
+- GNOME: requires the AppIndicator/KStatusNotifierItem extension. Without a
+  StatusNotifier host the tray is unavailable and closing the window quits.
+- macOS: the tray is disabled for now (needs main-thread integration).
+- Windows: implemented but not yet verified.
+
+With the tray available and "Close to tray" enabled, closing the window keeps
+downloads running; use the tray menu to show the window or quit.
+
+### Single instance
+
+Only one GUI may use a data directory at a time (a `gui.lock` file in it). A
+second launch on the same data directory exits with an error; it does not
+activate the first window.
+
+### Manual checklist
+
+- Tray on KDE and on GNOME with AppIndicator: show, pause/resume all, quit.
+- Folder picker in the Add dialog and Settings.
+- Open file and open folder from a completed download.
+- Keyboard navigation: Tab order, focus ring, all shortcuts above.
+
+### Known limitations (GUI)
+
+Deferred to a later queue and polish phase: priorities, manual reorder, history
+search/filter, duplicate detection, drag-and-drop URLs, multi-select and bulk
+actions, rich animation, second-launch activation (IPC), packaging and signing.
 
 ## CLI usage
 
