@@ -12,6 +12,7 @@ import (
 	"gioui.org/widget"
 
 	"github.com/raptordnj/swiftfetch/internal/app"
+	"github.com/raptordnj/swiftfetch/internal/ui/anim"
 	"github.com/raptordnj/swiftfetch/internal/ui/components"
 	"github.com/raptordnj/swiftfetch/internal/ui/screens"
 	"github.com/raptordnj/swiftfetch/internal/ui/state"
@@ -36,6 +37,7 @@ type Add struct {
 	destDir             string
 	urlErr, submitErr   string
 	add, cancel, change widget.Clickable
+	fade                anim.Fade
 }
 
 // Open resets the dialog with a prefilled URL and default folder.
@@ -46,6 +48,7 @@ func (a *Add) Open(prefill, defaultDir string) {
 	a.name.SetText("")
 	a.destDir = defaultDir
 	a.urlErr, a.submitErr = "", ""
+	a.fade = anim.Fade{}
 }
 
 // SetDestDir sets the destination folder (folder picker result).
@@ -110,9 +113,10 @@ func (a *Add) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot, _ t
 			return screens.Text(th, theme.Caption, th.Error, a.submitErr, 3)(gtx)
 		},
 	)
-	actions := screens.Row(components.Button(th, &a.cancel, "Cancel", components.Ghost),
+	actions := screens.Row(components.Button(th, &a.cancel, "Cancel", components.Secondary),
 		components.Button(th, &a.add, "Add", components.Primary))
-	modal(gtx, th, components.DialogShell(th, "Add download", body, actions))
+	a.fade.Show(true)
+	modal(gtx, th, components.DialogShell(th, &a.fade, "Add download", body, actions))
 	return out
 }
 
@@ -126,18 +130,10 @@ func recordIf(s string) layout.Widget {
 	}
 }
 
-// modal dims the window and centers a dialog of at most 520 dp width.
-func modal(gtx layout.Context, th *theme.Theme, w layout.Widget) layout.Dimensions {
+// modal lays out a full-window dialog shell (scrim + centred card).
+func modal(gtx layout.Context, _ *theme.Theme, w layout.Widget) layout.Dimensions {
 	gtx.Constraints.Min = gtx.Constraints.Max
-	return layout.Background{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return screens.Fill(gtx, theme.WithAlpha(th.Text, 0x66))
-	}, func(gtx layout.Context) layout.Dimensions {
-		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min.X = 0
-			gtx.Constraints.Max.X = min(gtx.Constraints.Max.X-gtx.Dp(theme.S6), gtx.Dp(520))
-			return w(gtx)
-		})
-	})
+	return w(gtx)
 }
 
 // HasFocus reports whether one of the dialog's text fields has keyboard focus.

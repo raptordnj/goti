@@ -13,6 +13,8 @@ import (
 	"gioui.org/widget"
 
 	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/swiftfetch/internal/ui/anim"
+	"github.com/raptordnj/swiftfetch/internal/ui/icons"
 	"github.com/raptordnj/swiftfetch/internal/ui/state"
 	"github.com/raptordnj/swiftfetch/internal/ui/theme"
 )
@@ -73,13 +75,20 @@ func TestComponentsLayout(t *testing.T) {
 		for _, k := range []ButtonKind{Primary, Secondary, Danger, Ghost} {
 			nonZero(t, "Button", Button(th, &c, "Add", k)(newGtx()))
 		}
-		nonZero(t, "IconButton", IconButton(th, &c, "x", "Close")(newGtx()))
-		nonZero(t, "Progress", ProgressBar(th, 0.4)(newGtx()))
-		nonZero(t, "ProgressIndet", ProgressBar(th, -1)(newGtx()))
+		nonZero(t, "IconButton", IconButton(th, &c, icons.Close, "Close")(newGtx()))
+		nonZero(t, "Progress", ProgressBar(th, nil, 0.4, th.Accent)(newGtx()))
+		nonZero(t, "ProgressIndet", ProgressBar(th, new(anim.Value), -1, th.Accent)(newGtx()))
+		nonZero(t, "ButtonIconSmall", Button(th, &c, "Add", Primary, WithIcon(icons.Plus), Small())(newGtx()))
+		var b widget.Bool
+		nonZero(t, "Switch", Switch(th, &b, "Reduce motion")(newGtx()))
+		var en widget.Enum
+		nonZero(t, "Segmented", Segmented(th, &en, [][2]string{{"a", "A"}, {"b", "B"}})(newGtx()))
+		nonZero(t, "Stepper", Stepper(th, &StepperState{Value: 3}, 1, 10)(newGtx()))
+		nonZero(t, "Banner", Banner(th, icons.WifiOff, "Offline", th.Warning)(newGtx()))
 		nonZero(t, "Section", SectionHeader(th, "Active", 3)(newGtx()))
 		var e widget.Editor
 		nonZero(t, "Field", TextField(th, &e, "URL", "https://", "bad url")(newGtx()))
-		nonZero(t, "Dialog", DialogShell(th, "Add", Button(th, &c, "a", Primary), Button(th, &c, "b", Ghost))(newGtx()))
+		nonZero(t, "Dialog", DialogShell(th, nil, "Add", Button(th, &c, "a", Primary), Button(th, &c, "b", Ghost))(newGtx()))
 		toasts := []state.Toast{{Kind: state.ToastInfo, Text: "hi"}, {Kind: state.ToastSuccess, Text: "ok"}, {Kind: state.ToastError, Text: "no"}}
 		nonZero(t, "Toasts", ToastStack(th, toasts, make([]widget.Clickable, 3))(newGtx()))
 		for _, v := range fixtures() {

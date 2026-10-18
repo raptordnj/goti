@@ -13,6 +13,8 @@ import (
 
 	"github.com/raptordnj/swiftfetch/internal/domain"
 	"github.com/raptordnj/swiftfetch/internal/platform"
+	"github.com/raptordnj/swiftfetch/internal/ui/anim"
+	"github.com/raptordnj/swiftfetch/internal/ui/icons"
 	"github.com/raptordnj/swiftfetch/internal/ui/state"
 	"github.com/raptordnj/swiftfetch/internal/ui/theme"
 )
@@ -22,6 +24,7 @@ import (
 // restart, open, menu); ShownName is the (ellipsized) file name drawn.
 type RowWidgets struct {
 	Pause, Resume, Cancel, Retry, Restart, Open, Menu, Select widget.Clickable
+	Progress                                                  anim.Value
 	Shown                                                     []string
 	ShownName                                                 string
 }
@@ -121,7 +124,7 @@ func rowBody(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidget
 		gap,
 		layout.Rigid(label(th, theme.Caption, statusColor(th, v), state.StatusText(v, now)).Layout),
 		gap,
-		layout.Rigid(ProgressBar(th, frac)),
+		layout.Rigid(ProgressBar(th, &w.Progress, frac, theme.StateColor(th.Palette, v.State, v.Interrupted))),
 		gap,
 		layout.Rigid(label(th, theme.Caption, th.TextMuted, rowMeta(v)).Layout),
 	)
@@ -136,25 +139,26 @@ func rowButtons(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWid
 			continue
 		}
 		w.Shown = append(w.Shown, b.name)
-		children = append(children, layout.Rigid(IconButton(th, b.c, b.glyph, b.desc)))
+		children = append(children, layout.Rigid(IconButton(th, b.c, b.icon, b.desc)))
 	}
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx, children...)
 }
 
 type rowButton struct {
-	name, glyph, desc string
-	c                 *widget.Clickable
+	name, desc string
+	icon       icons.Icon
+	c          *widget.Clickable
 }
 
 func rowButtonSpecs(w *RowWidgets) []rowButton {
 	return []rowButton{
-		{"pause", "Pause", "Pause download", &w.Pause},
-		{"resume", "Resume", "Resume download", &w.Resume},
-		{"retry", "Retry", "Retry download", &w.Retry},
-		{"restart", "Restart", "Restart download", &w.Restart},
-		{"open", "Open", "Open file", &w.Open},
-		{"cancel", "Cancel", "Cancel download", &w.Cancel},
-		{"menu", glyphMenu, "More actions", &w.Menu},
+		{"pause", "Pause download", icons.Pause, &w.Pause},
+		{"resume", "Resume download", icons.Play, &w.Resume},
+		{"retry", "Retry download", icons.Retry, &w.Retry},
+		{"restart", "Restart download", icons.Restart, &w.Restart},
+		{"open", "Open file", icons.File, &w.Open},
+		{"cancel", "Cancel download", icons.Close, &w.Cancel},
+		{"menu", "More actions", icons.More, &w.Menu},
 	}
 }
 

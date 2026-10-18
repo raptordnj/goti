@@ -10,9 +10,12 @@ import (
 	"image"
 
 	"gioui.org/gpu/headless"
+	"gioui.org/io/input"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
+
+	"github.com/raptordnj/swiftfetch/internal/ui/anim"
 )
 
 // ErrNoGPU wraps the error from creating the headless window.
@@ -25,8 +28,16 @@ func Render(w, h int, lay func(gtx layout.Context)) (*image.RGBA, error) {
 		return nil, fmt.Errorf("%w: %w", ErrNoGPU, err)
 	}
 	defer win.Release()
+	// Without an input source gtx.Enabled() is false and every control
+	// renders disabled (the washed-out baseline buttons).
+	var r input.Router
+	// Screenshots show settled frames: no fades or eased transitions.
+	prev := anim.Reduce
+	anim.Reduce = func() bool { return true }
+	defer func() { anim.Reduce = prev }()
 	var ops op.Ops
 	gtx := layout.Context{
+		Source:      r.Source(),
 		Ops:         &ops,
 		Constraints: layout.Exact(image.Pt(w, h)),
 		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},

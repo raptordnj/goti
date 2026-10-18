@@ -81,7 +81,7 @@ of mixed weight.
   with fade-out; dismiss icon button.
 - **Banner (offline):** slim 32-dp bar under header, Warning tint, wifi-off icon, text "You're offline —
   downloads resume automatically".
-- **Header (52 dp):** app mark (accent rounded square with arrow-down icon) + "SwiftFetch" Title;
+- **Header (52 dp):** app mark (accent rounded square with arrow-down icon) + "Goti" Title;
   centre-left: aggregate pill "3 active · 8.4 MB/s" (hidden when idle); right: IconButton pause/resume
   all, IconButton settings, Primary Sm "Add" with plus icon. Hairline bottom border.
 - **Empty state:** truly centred column: 48-dp icon tile, "No downloads yet" (Title), "Paste a link

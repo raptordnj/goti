@@ -8,6 +8,7 @@ import (
 
 	"github.com/raptordnj/swiftfetch/internal/app"
 	"github.com/raptordnj/swiftfetch/internal/domain"
+	"github.com/raptordnj/swiftfetch/internal/ui/anim"
 	"github.com/raptordnj/swiftfetch/internal/ui/components"
 	"github.com/raptordnj/swiftfetch/internal/ui/screens"
 	"github.com/raptordnj/swiftfetch/internal/ui/state"
@@ -23,11 +24,13 @@ type Confirm struct {
 	task                state.TaskView
 	deletePartial       bool
 	ok, cancel, partial widget.Clickable
+	fade                anim.Fade
 }
 
 // Open prepares the dialog for task v.
 func (c *Confirm) Open(kind screens.ConfirmKind, v state.TaskView) {
 	c.kind, c.task, c.deletePartial = kind, v, false
+	c.fade = anim.Fade{}
 }
 
 func (c *Confirm) unfinished() bool {
@@ -68,8 +71,9 @@ func (c *Confirm) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot,
 			return components.Button(th, &c.partial, box+" Also delete partial data", components.Ghost)(gtx)
 		},
 	)
-	actions := screens.Row(components.Button(th, &c.cancel, "Keep", components.Ghost),
+	actions := screens.Row(components.Button(th, &c.cancel, "Keep", components.Secondary),
 		components.Button(th, &c.ok, okTxt, components.Danger))
-	modal(gtx, th, components.DialogShell(th, title, body, actions))
+	c.fade.Show(true)
+	modal(gtx, th, components.DialogShell(th, &c.fade, title, body, actions))
 	return out
 }
