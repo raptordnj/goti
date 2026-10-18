@@ -3,6 +3,7 @@
 package snapshot
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"image/png"
@@ -38,7 +39,6 @@ func mainScene(sel string, dlg func(*dialogs.Add, *dialogs.Confirm, *state.Snaps
 			d = dlg(&add, &conf, snap)
 		}
 		return func(gtx layout.Context) {
-			// two passes so scroll/list state settles like a live window
 			m.Layout(gtx, th, snap, Now)
 			if d != nil {
 				d(gtx, th, snap)
@@ -86,9 +86,12 @@ func TestScreenshots(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					th := tc.th()
 					snap := sc.snap()
-					img, err := Render(sz[0], sz[1], th, sc.build(th, snap))
-					if err != nil {
+					img, err := Render(sz[0], sz[1], sc.build(th, snap))
+					if errors.Is(err, ErrNoGPU) {
 						t.Skipf("headless rendering unavailable: %v", err)
+					}
+					if err != nil {
+						t.Fatal(err)
 					}
 					if !*update {
 						return

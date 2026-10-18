@@ -1,38 +1,43 @@
+//go:build snapshot
+
 // Package snapshot renders SwiftFetch screens headlessly to PNG for visual
 // review. It is development tooling, not used by the application.
 package snapshot
 
 import (
+	"errors"
+	"fmt"
 	"image"
 
 	"gioui.org/gpu/headless"
 	"gioui.org/layout"
 	"gioui.org/op"
-
-	"github.com/raptordnj/swiftfetch/internal/ui/theme"
+	"gioui.org/unit"
 )
 
-// Render lays out lay in a w x h window and returns the screenshot.
-func Render(w, h int, th *theme.Theme, lay func(gtx layout.Context)) (*image.RGBA, error) {
+// ErrNoGPU wraps the error from creating the headless window.
+var ErrNoGPU = errors.New("headless GPU unavailable")
+
+// Render lays out lay in a w x h window (1 px per dp) and returns the screenshot.
+func Render(w, h int, lay func(gtx layout.Context)) (*image.RGBA, error) {
 	win, err := headless.NewWindow(w, h)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrNoGPU, err)
 	}
 	defer win.Release()
 	var ops op.Ops
 	gtx := layout.Context{
 		Ops:         &ops,
 		Constraints: layout.Exact(image.Pt(w, h)),
-		Metric:      unitMetric(),
+		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
 	}
-	_ = th
 	lay(gtx)
 	if err := win.Frame(&ops); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("frame: %w", err)
 	}
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	if err := win.Screenshot(img); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("screenshot: %w", err)
 	}
 	return img, nil
 }
