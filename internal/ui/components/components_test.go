@@ -124,7 +124,7 @@ func TestGlyphsCovered(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, s := range usedGlyphs() {
+		for _, s := range append(usedGlyphs(), state.TrayNotice) {
 			for _, r := range s {
 				if g, _ := f.GlyphIndex(&buf, r); g == 0 {
 					t.Errorf("glyph %q (in %q) missing from Go fonts", r, s)

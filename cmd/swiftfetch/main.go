@@ -10,10 +10,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"syscall"
 
 	gioapp "gioui.org/app"
+	"gioui.org/io/system"
 
 	"github.com/raptordnj/swiftfetch/internal/app"
 	"github.com/raptordnj/swiftfetch/internal/config"
@@ -26,6 +28,7 @@ import (
 	"github.com/raptordnj/swiftfetch/internal/services"
 	"github.com/raptordnj/swiftfetch/internal/settings"
 	"github.com/raptordnj/swiftfetch/internal/storage"
+	"github.com/raptordnj/swiftfetch/internal/tray"
 	"github.com/raptordnj/swiftfetch/internal/ui"
 	"github.com/raptordnj/swiftfetch/internal/ui/state"
 )
@@ -45,6 +48,11 @@ type runtime struct {
 	cancel context.CancelFunc
 	// invalidate is the current window's Invalidate (nil = no window).
 	invalidate atomic.Pointer[func()]
+	// trayOK is set once the system tray is up.
+	trayOK atomic.Bool
+
+	winMu sync.Mutex
+	win   *gioapp.Window // the open window, nil when closed to tray
 }
 
 // build wires DB, settings, bus, engine, queue, app and state for dataDir,
@@ -101,7 +109,8 @@ func (r *runtime) run() error {
 	go func() {
 		defer close(stateDone)
 		state.Run(r.ctx, state.Deps{Bus: r.bus, Store: r.db, Running: r.engine.Running,
-			QueuePaused: r.queue.Paused, Settings: r.app.Settings, Invalidate: r.invalidateWindow}, r.store)
+			QueuePaused: r.queue.Paused, Settings: r.app.Settings, Invalidate: r.invalidateWindow,
+			TrayAvailable: r.trayOK.Load, MarkTrayNotice: r.markTrayNotice}, r.store)
 	}()
 	err := r.app.Run(r.ctx)
 	if errors.Is(err, context.Canceled) {
@@ -110,6 +119,42 @@ func (r *runtime) run() error {
 	r.cancel()
 	<-stateDone
 	return errors.Join(err, r.close())
+}
+
+// markTrayNotice persists TrayNoticeShown so the tray notice shows once.
+func (r *runtime) markTrayNotice() {
+	s := r.app.Settings()
+	s.TrayNoticeShown = true
+	r.app.Send(app.SaveSettings{S: s})
+}
+
+// showWindow opens the main window, or raises it when one is already open;
+// at most one window exists at a time.
+func (r *runtime) showWindow() {
+	r.winMu.Lock()
+	defer r.winMu.Unlock()
+	if r.win != nil {
+		r.win.Perform(system.ActionRaise)
+		return
+	}
+	w := new(gioapp.Window)
+	r.win = w
+	inv := w.Invalidate
+	r.invalidate.Store(&inv)
+	go func() {
+		err := ui.RunWindow(ui.WindowDeps{App: r.app, Store: r.store, Window: w, TrayAvailable: r.trayOK.Load,
+			Logger: r.log, OnClosed: func() {
+				r.winMu.Lock()
+				if r.win == w {
+					r.win = nil
+					r.invalidate.Store(nil)
+				}
+				r.winMu.Unlock()
+			}})
+		if err != nil {
+			r.log.Error("window", "err", err)
+		}
+	}()
 }
 
 // close releases the DB and the instance lock.
@@ -139,24 +184,29 @@ func main() {
 		}
 	}()
 
+	trayStop := make(chan func(), 1)
 	go func() {
 		code := 0
 		if err := rt.run(); err != nil {
 			rt.log.Error("shutdown", "err", err)
 			code = 1
 		}
+		select {
+		case stop := <-trayStop:
+			stop()
+		default:
+		}
 		os.Exit(code)
 	}()
 
-	trayAvailable := func() bool { return false } // tray arrives in Task 10
-	w := new(gioapp.Window)
-	inv := w.Invalidate
-	rt.invalidate.Store(&inv)
+	// The tray comes up in the background (≤ 2 s) so the window is not
+	// delayed; until it is ready, closing the window quits.
 	go func() {
-		if err := ui.RunWindow(ui.WindowDeps{App: rt.app, Store: rt.store, Window: w, TrayAvailable: trayAvailable,
-			Logger: rt.log, OnClosed: func() { rt.invalidate.Store(nil) }}); err != nil {
-			rt.log.Error("window", "err", err)
-		}
+		ok, stop := tray.Start(tray.Deps{Send: rt.app.Send, Snapshot: rt.store.Load, Show: rt.showWindow})
+		rt.log.Info("tray", "available", ok)
+		rt.trayOK.Store(ok)
+		trayStop <- stop
 	}()
+	rt.showWindow()
 	gioapp.Main()
 }

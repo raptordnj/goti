@@ -3,8 +3,10 @@ module github.com/raptordnj/swiftfetch
 go 1.27
 
 require (
+	fyne.io/systray v1.12.2
 	gioui.org v0.10.3
 	gioui.org/x v0.10.3
+	github.com/godbus/dbus/v5 v5.2.2
 	golang.org/x/image v0.26.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/sys v0.49.0
@@ -18,7 +20,6 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
-	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect

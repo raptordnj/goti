@@ -21,7 +21,15 @@ type Deps struct {
 	Settings    func() settings.Settings
 	Clock       domain.Clock
 	Invalidate  func()
+	// TrayAvailable reports whether a system tray is running (nil = none).
+	TrayAvailable func() bool
+	// MarkTrayNotice persists TrayNoticeShown=true (nil = no-op).
+	MarkTrayNotice func()
 }
+
+// TrayNotice is the one-time toast shown when the first download starts
+// while a tray is available (spec §9).
+const TrayNotice = "Closing the window keeps downloads running in the tray (Settings › Close to tray)"
 
 // Run loads the initial state, then folds bus events into s until ctx is done.
 // Publications are coalesced to at most one per 100 ms of clock time.
@@ -55,6 +63,8 @@ func Run(ctx context.Context, d Deps, s *Store) {
 		lastPub time.Time
 		timer   <-chan time.Time
 		timerAt time.Time
+		// noticeDone guards the tray notice until the saved setting lands.
+		noticeDone bool
 	)
 	arm := func(at time.Time) {
 		if timer != nil && !at.Before(timerAt) {
@@ -66,6 +76,15 @@ func Run(ctx context.Context, d Deps, s *Store) {
 	publish := func() {
 		now := d.Clock.Now()
 		snap := build(m, now)
+		if !noticeDone && snap.ActiveCount > 0 && d.TrayAvailable != nil && d.Settings != nil &&
+			!d.Settings().TrayNoticeShown && d.TrayAvailable() {
+			noticeDone = true
+			m.addToast(Toast{Kind: ToastInfo, Text: TrayNotice, At: now})
+			snap = build(m, now)
+			if d.MarkTrayNotice != nil {
+				d.MarkTrayNotice()
+			}
+		}
 		s.publish(snap)
 		lastPub = now
 		if d.Invalidate != nil {

@@ -441,3 +441,53 @@ func TestAddResultSequence(t *testing.T) {
 		t.Fatalf("after success %d %q", s.AddResultSeq, s.AddErr)
 	}
 }
+
+func TestTrayNoticeOnce(t *testing.T) {
+	const notice = "Closing the window keeps downloads running in the tray (Settings › Close to tray)"
+	for _, tc := range []struct {
+		name      string
+		avail     bool
+		shown     bool
+		wantToast bool
+	}{{"available", true, false, true}, {"no tray", false, false, false}, {"already shown", true, true, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			clk := clocktest.New(t0)
+			bus := events.NewBus(1000, clk)
+			fs := &fakeStore{tasks: map[string]*domain.Task{}}
+			fs.put(task("a", domain.StateDownloading, 0))
+			var marks atomic.Int64
+			var st Store
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() {
+				Run(ctx, Deps{Bus: bus, Store: fs, Clock: clk,
+					Running: func(string) bool { return true }, QueuePaused: func() bool { return false },
+					Settings:       func() settings.Settings { return settings.Settings{TrayNoticeShown: tc.shown} },
+					TrayAvailable:  func() bool { return tc.avail },
+					MarkTrayNotice: func() { marks.Add(1) }}, &st)
+				close(done)
+			}()
+			waitFor(t, func() bool { return len(st.Load().Tasks) == 1 })
+			for i := 0; i < 5; i++ {
+				bus.Publish(events.Progress{ID: "a", Downloaded: int64(i), Total: 10, TotalKnown: true})
+				clk.Advance(200 * time.Millisecond)
+			}
+			time.Sleep(50 * time.Millisecond)
+			n := 0
+			for _, ts := range st.Load().Toasts {
+				if ts.Text == notice {
+					n++
+				}
+			}
+			cancel()
+			<-done
+			want := int64(0)
+			if tc.wantToast {
+				want = 1
+			}
+			if marks.Load() != want || (n == 1) != tc.wantToast || n > 1 {
+				t.Fatalf("marks=%d toasts=%d", marks.Load(), n)
+			}
+		})
+	}
+}
