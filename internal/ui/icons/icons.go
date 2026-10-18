@@ -248,34 +248,61 @@ func gear(q *pen, cx, cy, ro, ri float32, n int) {
 	q.p.Close()
 }
 
-var extIcons = map[string]Icon{}
+// File kinds returned by KindFor.
+const (
+	KindArchive = "archive"
+	KindVideo   = "video"
+	KindAudio   = "audio"
+	KindImage   = "image"
+	KindDoc     = "doc"
+	KindDisk    = "disk"
+	KindFile    = "file"
+)
+
+var extKinds = map[string]string{}
 
 func init() {
-	for _, e := range strings.Fields("zip rar 7z tar gz tgz bz2 xz zst") {
-		extIcons[e] = Archive
-	}
-	for _, e := range strings.Fields("mp4 mkv avi mov webm flv wmv m4v") {
-		extIcons[e] = Video
-	}
-	for _, e := range strings.Fields("mp3 flac wav ogg m4a aac opus") {
-		extIcons[e] = Audio
-	}
-	for _, e := range strings.Fields("png jpg jpeg gif webp bmp svg tiff heic") {
-		extIcons[e] = Image
-	}
-	for _, e := range strings.Fields("pdf doc docx txt md odt rtf epub xls xlsx ppt pptx csv") {
-		extIcons[e] = Doc
-	}
-	for _, e := range strings.Fields("iso img dmg vhd vmdk") {
-		extIcons[e] = Disk
+	for kind, exts := range map[string]string{
+		KindArchive: "zip rar 7z tar gz tgz bz2 xz zst",
+		KindVideo:   "mp4 mkv avi mov webm flv wmv m4v",
+		KindAudio:   "mp3 flac wav ogg m4a aac opus",
+		KindImage:   "png jpg jpeg gif webp bmp svg tiff heic",
+		KindDoc:     "pdf doc docx txt md odt rtf epub xls xlsx ppt pptx csv",
+		KindDisk:    "iso img dmg vhd vmdk",
+	} {
+		for _, e := range strings.Fields(exts) {
+			extKinds[e] = kind
+		}
 	}
 }
 
-// ForFile picks an icon from the file name's extension.
-func ForFile(name string) Icon {
+// KindFor classifies a file name by extension (case-insensitive).
+func KindFor(name string) string {
 	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(name)), ".")
-	if ic, ok := extIcons[ext]; ok {
-		return ic
+	if k, ok := extKinds[ext]; ok {
+		return k
+	}
+	return KindFile
+}
+
+// ForKind returns the icon for a kind from KindFor.
+func ForKind(kind string) Icon {
+	switch kind {
+	case KindArchive:
+		return Archive
+	case KindVideo:
+		return Video
+	case KindAudio:
+		return Audio
+	case KindImage:
+		return Image
+	case KindDoc:
+		return Doc
+	case KindDisk:
+		return Disk
 	}
 	return File
 }
+
+// ForFile picks an icon from the file name's extension.
+func ForFile(name string) Icon { return ForKind(KindFor(name)) }

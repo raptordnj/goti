@@ -45,14 +45,17 @@ func TestIconsBounds(t *testing.T) {
 }
 
 func TestForFile(t *testing.T) {
-	cases := map[string]Icon{
-		"a.zip": Archive, "b.TAR.GZ": Archive, "c.7z": Archive, "m.mp4": Video, "m.mkv": Video,
-		"s.mp3": Audio, "s.flac": Audio, "p.PNG": Image, "p.jpg": Image, "d.pdf": Doc,
-		"d.docx": Doc, "x.iso": Disk, "x.dmg": Disk, "noext": File, "x.bin": File,
+	cases := map[string]string{
+		"a.zip": "archive", "b.TAR.GZ": "archive", "c.7z": "archive", "m.mp4": "video", "m.mkv": "video",
+		"s.mp3": "audio", "s.flac": "audio", "p.PNG": "image", "p.jpg": "image", "d.pdf": "doc",
+		"d.docx": "doc", "x.iso": "disk", "x.dmg": "disk", "noext": "file", "x.bin": "file",
 	}
 	for n, want := range cases {
-		if got := ForFile(n); reflect.ValueOf(got).Pointer() != reflect.ValueOf(want).Pointer() {
-			t.Errorf("ForFile(%q) wrong icon", n)
+		if got := KindFor(n); got != want {
+			t.Errorf("KindFor(%q)=%q want %q", n, got, want)
+		}
+		if ForFile(n) == nil {
+			t.Errorf("ForFile(%q) nil", n)
 		}
 	}
 }

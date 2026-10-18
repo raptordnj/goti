@@ -99,9 +99,15 @@ func TestFade(t *testing.T) {
 	}
 	f.Show(true)
 	f.Alpha(layout.Context{Now: t0})
-	mid := f.Alpha(layout.Context{Now: t0.Add(75 * time.Millisecond)})
+	var mid float32
+	for ms := 16; ms <= 64; ms += 16 { // frames; first frame counted as 16 ms
+		mid = f.Alpha(layout.Context{Now: t0.Add(time.Duration(ms) * time.Millisecond)})
+	}
 	if mid <= 0.5 || mid >= 1 { // ease-out: past halfway at half time
 		t.Fatalf("mid %v", mid)
+	}
+	for ms := 80; ms < 150; ms += 16 {
+		f.Alpha(layout.Context{Now: t0.Add(time.Duration(ms) * time.Millisecond)})
 	}
 	if a := f.Alpha(layout.Context{Now: t0.Add(150 * time.Millisecond)}); a != 1 {
 		t.Fatalf("end %v", a)
@@ -112,8 +118,49 @@ func TestFade(t *testing.T) {
 		t.Fatal("invalidate after done")
 	}
 	f.Show(false)
-	f.Alpha(layout.Context{Now: t0.Add(300 * time.Millisecond)})
-	if a := f.Alpha(layout.Context{Now: t0.Add(450 * time.Millisecond)}); a != 0 {
+	var a float32
+	for ms := 300; ms <= 480; ms += 16 {
+		a = f.Alpha(layout.Context{Now: t0.Add(time.Duration(ms) * time.Millisecond)})
+	}
+	if a != 0 {
 		t.Fatalf("hide end %v", a)
 	}
+}
+
+func TestValueAnimatesAfterIdle(t *testing.T) {
+	withCounter(t)
+	t0 := time.Unix(1000, 0)
+	var v Value
+	v.Snap(0)
+	v.Get(layout.Context{Now: t0})
+	t1 := t0.Add(5 * time.Second)
+	v.Set(1)
+	v.Get(layout.Context{Now: t1})
+	if x := v.Get(layout.Context{Now: t1.Add(16 * time.Millisecond)}); x <= 0 || x >= 1 {
+		t.Fatalf("x=%v", x)
+	}
+}
+
+func TestFadeAnimatesAfterIdle(t *testing.T) {
+	withCounter(t)
+	t0 := time.Unix(1000, 0)
+	var f Fade
+	f.Alpha(layout.Context{Now: t0})
+	t1 := t0.Add(5 * time.Second)
+	f.Show(true)
+	f.Alpha(layout.Context{Now: t1})
+	if a := f.Alpha(layout.Context{Now: t1.Add(16 * time.Millisecond)}); a <= 0 || a >= 1 {
+		t.Fatalf("a=%v", a)
+	}
+}
+
+func TestNilReduce(t *testing.T) {
+	withCounter(t)
+	old := Reduce
+	Reduce = nil
+	defer func() { Reduce = old }()
+	var v Value
+	v.Get(layout.Context{Now: time.Unix(1, 0)})
+	var f Fade
+	f.Alpha(layout.Context{Now: time.Unix(1, 0)})
 }

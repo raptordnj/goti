@@ -11,7 +11,7 @@ import (
 )
 
 // Reduce reports whether motion should be reduced; when true all
-// animations jump to their target instantly.
+// animations jump to their target instantly. A nil Reduce means false.
 var Reduce = func() bool { return false }
 
 // invalidate requests another frame. Replaced in tests.
@@ -22,6 +22,26 @@ var invalidate = func(gtx layout.Context) { gtx.Execute(op.InvalidateCmd{}) }
 const tau = 0.180 / 4.605170
 
 const settleEps = 0.001
+
+// nominalFrame is the dt assumed for the first frame of a transition, and
+// maxFrame caps dt so a stalled or idle clock never skips an animation.
+const (
+	nominalFrame = 16 * time.Millisecond
+	maxFrame     = 50 * time.Millisecond
+)
+
+func reduced() bool { return Reduce != nil && Reduce() }
+
+// step returns the elapsed time since *last (nominalFrame when *last is
+// zero), clamped to maxFrame, and records now.
+func step(last *time.Time, now time.Time) time.Duration {
+	dt := nominalFrame
+	if !last.IsZero() {
+		dt = min(max(now.Sub(*last), 0), maxFrame)
+	}
+	*last = now
+	return dt
+}
 
 // Value eases toward a target with a critically damped exponential approach.
 type Value struct {
@@ -46,21 +66,14 @@ func (v *Value) Snap(x float32) { v.x, v.target, v.init = x, x, true }
 // requesting a redraw while unsettled.
 func (v *Value) Get(gtx layout.Context) float32 {
 	v.init = true
-	now := gtx.Now
-	dt := 0.0
-	if !v.last.IsZero() {
-		dt = now.Sub(v.last).Seconds()
-	}
-	v.last = now
-	if Reduce() {
-		v.x = v.target
+	if reduced() || v.x == v.target {
+		v.x, v.last = v.target, time.Time{}
 		return v.x
 	}
-	if dt > 0 {
-		v.x += (v.target - v.x) * float32(1-math.Exp(-dt/tau))
-	}
+	dt := step(&v.last, gtx.Now).Seconds()
+	v.x += (v.target - v.x) * float32(1-math.Exp(-dt/tau))
 	if d := v.target - v.x; d < settleEps && d > -settleEps {
-		v.x = v.target
+		v.x, v.last = v.target, time.Time{}
 		return v.x
 	}
 	invalidate(gtx)
@@ -85,25 +98,24 @@ func (f *Fade) Visible() bool { return f.shown || f.p > 0 }
 
 // Alpha advances the fade to gtx.Now and returns opacity in [0,1].
 func (f *Fade) Alpha(gtx layout.Context) float32 {
-	now := gtx.Now
-	dt := float32(0)
-	if !f.last.IsZero() {
-		dt = float32(now.Sub(f.last).Seconds() / FadeDuration.Seconds())
-	}
-	f.last = now
 	target := float32(0)
 	if f.shown {
 		target = 1
 	}
-	if Reduce() {
-		f.p = target
-	} else if f.p < target {
-		f.p = min(target, f.p+dt)
-	} else if f.p > target {
-		f.p = max(target, f.p-dt)
-	}
-	if f.p != target {
-		invalidate(gtx)
+	if reduced() || f.p == target {
+		f.p, f.last = target, time.Time{}
+	} else {
+		dt := float32(step(&f.last, gtx.Now).Seconds() / FadeDuration.Seconds())
+		if f.p < target {
+			f.p = min(target, f.p+dt)
+		} else {
+			f.p = max(target, f.p-dt)
+		}
+		if f.p == target {
+			f.last = time.Time{}
+		} else {
+			invalidate(gtx)
+		}
 	}
 	if f.shown {
 		return easeOut(f.p)
