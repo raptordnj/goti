@@ -185,3 +185,13 @@ func (st *Settings) fields(th *theme.Theme) []layout.Widget {
 			components.Button(th, &st.cancel, "Cancel", components.Ghost)),
 	}
 }
+
+// HasFocus reports whether one of the form's text fields has keyboard focus.
+func (st *Settings) HasFocus(gtx layout.Context) bool {
+	for _, e := range []*widget.Editor{&st.maxSim, &st.dir, &st.maxConn, &st.globalLimit, &st.perLimit} {
+		if gtx.Focused(e) {
+			return true
+		}
+	}
+	return false
+}

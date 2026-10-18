@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -10,8 +9,6 @@ import (
 	gioapp "gioui.org/app"
 	"gioui.org/io/clipboard"
 	"gioui.org/io/event"
-	"gioui.org/io/key"
-	"gioui.org/io/transfer"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
@@ -205,28 +202,7 @@ func (c *controller) handle(in screens.Intent, snap *state.Snapshot, now time.Ti
 		if c.picker == nil || c.pickBusy {
 			return
 		}
-		c.pickBusy = true
-		p := c.picker
-		go func() {
-			path, err := p.ChooseFolder()
-			if err != nil && !errors.Is(err, explorer.ErrUserDecline) {
-				c.log.Warn("folder picker failed", "err", err)
-			}
-			if err == nil && path != "" {
-				select {
-				case c.picked <- path:
-				default:
-				}
-			} else {
-				select {
-				case c.picked <- "":
-				default:
-				}
-			}
-			if c.invalidate != nil {
-				c.invalidate()
-			}
-		}()
+		c.startPick()
 	case screens.IntentOpen:
 		go func() {
 			f := platform.OpenPath
@@ -268,72 +244,6 @@ func (c *controller) afterResults(snap *state.Snapshot) {
 		return
 	}
 	c.dialog = dialogNone
-}
-
-// pollPicked applies a finished folder pick.
-func (c *controller) pollPicked() {
-	select {
-	case p := <-c.picked:
-		c.pickBusy = false
-		if p != "" && c.dialog == dialogAdd {
-			c.add.SetDestDir(p)
-		}
-	default:
-	}
-}
-
-// keyEvents turns this frame's shortcut keys into intents.
-func (c *controller) keyEvents(gtx layout.Context, snap *state.Snapshot) []screens.Intent {
-	inText := !gtx.Focused(nil)
-	filters := []event.Filter{shortcutKeys[0], shortcutKeys[2], shortcutKeys[3],
-		key.Filter{Name: key.NameEscape}}
-	if !inText {
-		filters = filters[:0]
-		for _, f := range shortcutKeys {
-			filters = append(filters, f)
-		}
-	}
-	kc := KeyContext{Tasks: snap.Tasks, Selected: c.main.Selected, DialogOpen: c.dialog != dialogNone,
-		SettingsOpen: c.settingsOpen, InText: inText}
-	var out []screens.Intent
-	for {
-		ev, ok := gtx.Event(filters...)
-		if !ok {
-			return out
-		}
-		if ke, ok := ev.(key.Event); ok {
-			if in := Shortcut(ke, kc); in != nil {
-				out = append(out, in)
-			}
-		}
-	}
-}
-
-// clipboardEvents requests and consumes clipboard text for the Add dialog.
-func (c *controller) clipboardEvents(gtx layout.Context, snap *state.Snapshot) {
-	tag := &c.clipTag
-	for {
-		ev, ok := gtx.Event(transfer.TargetFilter{Target: tag, Type: textMIME})
-		if !ok {
-			break
-		}
-		de, ok := ev.(transfer.DataEvent)
-		if !ok {
-			continue
-		}
-		rc := de.Open()
-		b, _ := io.ReadAll(io.LimitReader(rc, 8<<10))
-		_ = rc.Close()
-		s := strings.TrimSpace(string(b))
-		if c.clipReq && c.dialog == dialogAdd && (strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")) {
-			c.add.Open(s, snap.Settings.DownloadDir)
-		}
-		c.clipReq = false
-	}
-	if c.wantClip {
-		c.wantClip, c.clipReq = false, true
-		gtx.Execute(clipboard.ReadCmd{Tag: tag})
-	}
 }
 
 // frame lays out one frame.
@@ -400,9 +310,7 @@ func RunWindow(d WindowDeps) error {
 				c.log.Error("window error", "err", e.Err)
 			}
 			if !(d.App.Settings().CloseToTray && d.TrayAvailable != nil && d.TrayAvailable()) {
-				for !d.App.Send(app.Quit{}) {
-					time.Sleep(10 * time.Millisecond)
-				}
+				sendQuit(d.App.Send, c.log)
 			}
 			if d.OnClosed != nil {
 				d.OnClosed()

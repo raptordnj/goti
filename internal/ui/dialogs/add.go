@@ -139,3 +139,11 @@ func modal(gtx layout.Context, th *theme.Theme, w layout.Widget) layout.Dimensio
 		})
 	})
 }
+
+// HasFocus reports whether one of the dialog's text fields has keyboard focus.
+func (a *Add) HasFocus(gtx layout.Context) bool {
+	return gtx.Focused(&a.url) || gtx.Focused(&a.name)
+}
+
+// URLEmpty reports whether the URL field is empty.
+func (a *Add) URLEmpty() bool { return strings.TrimSpace(a.url.Text()) == "" }

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"log/slog"
 	"testing"
 	"time"
 
@@ -119,5 +120,25 @@ func TestFolderPickerResult(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no picker result")
+	}
+}
+
+func TestSendQuitBounded(t *testing.T) {
+	n := 0
+	ok := sendQuit(func(app.Command) bool { n++; return n == 3 }, slog.Default())
+	if !ok || n != 3 {
+		t.Fatalf("ok=%v n=%d", ok, n)
+	}
+}
+
+func TestAddURLEmpty(t *testing.T) {
+	c, _ := newCtl(true)
+	c.handle(screens.IntentOpenAdd{}, &state.Snapshot{}, time.Unix(1e6, 0))
+	if !c.add.URLEmpty() {
+		t.Fatal("expected empty")
+	}
+	c.handle(screens.IntentOpenAdd{Prefill: "https://a/b"}, &state.Snapshot{}, time.Unix(1e6, 0))
+	if c.add.URLEmpty() {
+		t.Fatal("expected non-empty: clipboard must not overwrite")
 	}
 }

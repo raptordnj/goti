@@ -17,11 +17,12 @@ type IntentPasteAdd struct{}
 
 // KeyContext is what Shortcut needs to know about the window.
 type KeyContext struct {
-	Tasks        []state.TaskView // in display order
-	Selected     string
-	DialogOpen   bool
-	SettingsOpen bool
-	InText       bool // a text field has focus
+	Tasks         []state.TaskView // in display order
+	Selected      string
+	DialogOpen    bool
+	SettingsOpen  bool
+	InText        bool // a text field has focus
+	ButtonFocused bool // a non-text widget has focus: Space/Enter are its own
 }
 
 // shortcutKeys are the keys the window registers filters for.
@@ -78,6 +79,9 @@ func Shortcut(ev key.Event, c KeyContext) screens.Intent {
 		return nil
 	}
 	if c.DialogOpen || c.SettingsOpen || c.InText {
+		return nil
+	}
+	if c.ButtonFocused && (ev.Name == key.NameSpace || ev.Name == key.NameReturn || ev.Name == key.NameEnter) {
 		return nil
 	}
 	idx := -1
