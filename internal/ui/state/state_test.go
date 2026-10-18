@@ -420,3 +420,24 @@ func TestToastRedactsCredentials(t *testing.T) {
 		}
 	}
 }
+
+func TestAddResultSequence(t *testing.T) {
+	m := newModel()
+	t0 := time.Unix(1e6, 0)
+	if s := build(m, t0); s.AddResultSeq != 0 || s.AddErr != "" {
+		t.Fatalf("initial %d %q", s.AddResultSeq, s.AddErr)
+	}
+	apply(m, events.CommandResult{Cmd: "AddDownload", Err: fmt.Errorf("bad https://u:pw@h/x")}, t0)
+	s := build(m, t0)
+	if s.AddResultSeq != 1 || s.AddErr == "" || strings.Contains(s.AddErr, "pw") {
+		t.Fatalf("after error %d %q", s.AddResultSeq, s.AddErr)
+	}
+	apply(m, events.CommandResult{Cmd: "PauseTask", Err: fmt.Errorf("x")}, t0)
+	if s := build(m, t0); s.AddResultSeq != 1 {
+		t.Fatalf("other command bumped seq: %d", s.AddResultSeq)
+	}
+	apply(m, events.CommandResult{Cmd: "AddDownload", ID: "n"}, t0)
+	if s := build(m, t0); s.AddResultSeq != 2 || s.AddErr != "" {
+		t.Fatalf("after success %d %q", s.AddResultSeq, s.AddErr)
+	}
+}

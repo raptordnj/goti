@@ -89,6 +89,10 @@ type Snapshot struct {
 	Toasts        []Toast // newest last, max 3, each expires after 5 s
 	Offline       bool    // any active task waiting for network
 	Err           string  // fatal load error
+	// AddResultSeq counts AddDownload results; AddErr is the latest one's
+	// redacted error ("" on success). The window uses them for the Add dialog.
+	AddResultSeq uint64
+	AddErr       string
 }
 
 // Store holds the latest Snapshot; safe for concurrent use.

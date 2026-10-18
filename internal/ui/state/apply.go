@@ -48,6 +48,8 @@ type model struct {
 	tasks       map[string]*entry
 	toasts      []Toast
 	err         string
+	addSeq      uint64
+	addErr      string
 	running     func(string) bool
 	queuePaused func() bool
 	settings    func() settings.Settings
@@ -144,6 +146,13 @@ func apply(m *model, ev events.Event, now time.Time) result {
 		}
 	case events.CommandResult:
 		r := result{reload: e.ID, dirty: true}
+		if e.Cmd == "AddDownload" {
+			m.addSeq++
+			m.addErr = ""
+			if e.Err != nil {
+				m.addErr = redactText(transport.RedactError(e.Err).Error())
+			}
+		}
 		switch {
 		case e.Err != nil:
 			m.addToast(Toast{Kind: ToastError, Text: redactText(transport.RedactError(e.Err).Error()), At: now})
@@ -246,7 +255,7 @@ func view(e *entry, interrupted bool) TaskView {
 
 // build produces an immutable Snapshot from m at time now.
 func build(m *model, now time.Time) *Snapshot {
-	s := &Snapshot{Err: m.err, Tasks: make([]TaskView, 0, len(m.tasks))}
+	s := &Snapshot{Err: m.err, Tasks: make([]TaskView, 0, len(m.tasks)), AddResultSeq: m.addSeq, AddErr: m.addErr}
 	for _, e := range m.tasks {
 		interrupted := services.Interrupted(e.t.State) && !m.isRunning(e.t.ID)
 		v := view(e, interrupted)
