@@ -271,3 +271,44 @@ func TestReopenPersists(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMigration2OnV1DB(t *testing.T) {
+	db, p := open(t)
+	ctx := context.Background()
+	if err := db.CreateTask(ctx, mkTask("keep", time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Downgrade to a v1 database: no settings table, version 1.
+	raw, err := sql.Open("sqlite", "file:"+filepath.ToSlash(p))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`DROP TABLE settings; UPDATE schema_version SET version = 1`); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	db2, err := persistence.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db2.Close()
+	if _, err := db2.GetSetting(ctx, "app"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("missing setting err = %v", err)
+	}
+	if err := db2.PutSetting(ctx, "app", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db2.PutSetting(ctx, "app", "v2"); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := db2.GetSetting(ctx, "app"); err != nil || v != "v2" {
+		t.Fatalf("got %q, %v", v, err)
+	}
+	if _, err := db2.GetTask(ctx, "keep"); err != nil {
+		t.Fatalf("task lost: %v", err)
+	}
+}

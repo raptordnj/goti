@@ -21,7 +21,7 @@ import (
 )
 
 // SchemaVersion is the newest schema this binary understands.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 const maxAttempts = 200
 
@@ -333,4 +333,22 @@ func (db *DB) ListAttempts(ctx context.Context, taskID string) ([]domain.Attempt
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// GetSetting returns the stored value for key, or domain.ErrNotFound.
+func (db *DB) GetSetting(ctx context.Context, key string) (string, error) {
+	var v string
+	err := db.sql.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	return v, err
+}
+
+// PutSetting stores value under key, replacing any existing value.
+func (db *DB) PutSetting(ctx context.Context, key, value string) error {
+	_, err := db.sql.ExecContext(ctx,
+		`INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		key, value)
+	return err
 }
