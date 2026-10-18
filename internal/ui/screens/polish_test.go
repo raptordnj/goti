@@ -96,3 +96,31 @@ func TestDetailsGroups(t *testing.T) {
 		}
 	}
 }
+
+func TestHeaderControlsRightAligned(t *testing.T) {
+	busy := snapOf(task("a", domain.StateDownloading, state.SectionActive))
+	busy.ActiveCount, busy.TotalSpeedBps = 1, 8_400_000
+	for name, s := range map[string]*state.Snapshot{"idle": {}, "pill": busy} {
+		var m Main
+		hs := newHarness(1100, 720)
+		hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, s, now) })
+		if m.AddBounds.Empty() || abs(1100-m.AddBounds.Max.X) > 16 {
+			t.Errorf("%s: Add bounds %v, want right edge within 16 of 1100", name, m.AddBounds)
+		}
+	}
+}
+
+func TestDetailsNameCappedTwoLines(t *testing.T) {
+	v := task("a", domain.StateDownloading, state.SectionActive)
+	v.FileName = "an-extremely-long-file-name-for-the-quarterly-report-final-v2-revised-reviewed-approved-FINAL-again-and-again.tar.gz"
+	short := task("b", domain.StateDownloading, state.SectionActive)
+	d := Details{ID: "a"}
+	hs := newHarness(340, 800)
+	var hLong, hShort int
+	hs.frame(func(gtx layout.Context) { gtx.Constraints.Min.Y = 0; hLong = d.header(th, v, now)(gtx).Size.Y })
+	hs.frame(func(gtx layout.Context) { gtx.Constraints.Min.Y = 0; hShort = d.header(th, short, now)(gtx).Size.Y })
+	// Two Title lines at most: one extra line (~15-20 px) over a single-line name.
+	if hLong-hShort > 24 || hLong <= hShort {
+		t.Errorf("long name header %d vs short %d: want exactly one extra line", hLong, hShort)
+	}
+}

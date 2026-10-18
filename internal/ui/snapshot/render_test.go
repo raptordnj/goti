@@ -52,6 +52,7 @@ func scenes() []scene {
 		{"main-empty", Empty, mainScene("", nil)},
 		{"main-busy", Busy, mainScene("", nil)},
 		{"details", Busy, mainScene("1", nil)},
+		{"details-history", Busy, mainScene("4", nil)},
 		{"add", Busy, mainScene("", func(a *dialogs.Add, _ *dialogs.Confirm, s *state.Snapshot) func(layout.Context, *theme.Theme, *state.Snapshot) {
 			a.Open("https://example.com/big.iso", s.Settings.DownloadDir)
 			return func(g layout.Context, th *theme.Theme, s *state.Snapshot) { a.Layout(g, th, s, Now) }

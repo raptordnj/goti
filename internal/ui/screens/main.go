@@ -62,10 +62,13 @@ type Main struct {
 	EmptyBounds image.Rectangle
 	// PillShown reports whether the aggregate pill was drawn last frame.
 	PillShown bool
+	// AddBounds is the window rect (x extent) of the header Add button.
+	AddBounds image.Rectangle
 	// HeaderHeight is the header's height in px last frame.
 	HeaderHeight int
 
 	add, emptyAdd, pauseAll, settings widget.Clickable
+	addW                              int // Add button width last frame
 	scrim, sheetTag                   int // pointer tags: sheet scrim, sheet body
 	list                              widget.List
 	rows                              map[string]*components.RowWidgets
@@ -360,27 +363,41 @@ func (m *Main) header(gtx layout.Context, th *theme.Theme, snap *state.Snapshot)
 	layout.Inset{Left: theme.S4, Right: theme.S4}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return appMark(gtx, th) }),
-				layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
-				layout.Rigid(bold(th, theme.Title, th.Text, brand.Name)),
-				layout.Rigid(layout.Spacer{Width: theme.S4}.Layout),
+			x := 0 // total width of the children left of Add
+			track := func(w layout.Widget) layout.Widget {
+				return func(gtx layout.Context) layout.Dimensions { d := w(gtx); x += d.Size.X; return d }
+			}
+			fd := layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(track(func(gtx layout.Context) layout.Dimensions { return appMark(gtx, th) })),
+				layout.Rigid(track(layout.Spacer{Width: theme.S2}.Layout)),
+				layout.Rigid(track(bold(th, theme.Title, th.Text, brand.Name))),
+				layout.Rigid(track(layout.Spacer{Width: theme.S4}.Layout)),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					// Consume all spare width so the controls sit at the right edge.
+					w := gtx.Constraints.Max.X
 					gtx.Constraints.Min = image.Point{}
-					if !m.PillShown {
-						return layout.Dimensions{}
+					var d layout.Dimensions
+					if m.PillShown {
+						d = aggregatePill(gtx, th, snap)
 					}
-					return aggregatePill(gtx, th, snap)
+					x += w
+					return layout.Dimensions{Size: image.Pt(w, d.Size.Y)}
 				}),
-				layout.Rigid(components.IconButton(th, &m.pauseAll, allIcon, allDesc)),
-				layout.Rigid(layout.Spacer{Width: theme.S1}.Layout),
-				layout.Rigid(components.IconButton(th, &m.settings, icons.Settings, "Settings")),
-				layout.Rigid(layout.Spacer{Width: theme.S3}.Layout),
+				layout.Rigid(track(components.IconButton(th, &m.pauseAll, allIcon, allDesc))),
+				layout.Rigid(track(layout.Spacer{Width: theme.S1}.Layout)),
+				layout.Rigid(track(components.IconButton(th, &m.settings, icons.Settings, "Settings"))),
+				layout.Rigid(track(layout.Spacer{Width: theme.S3}.Layout)),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					Note("Add")
-					return components.Button(th, &m.add, "Add", components.Primary, components.Small(), components.WithIcon(icons.Plus))(gtx)
+					d := components.Button(th, &m.add, "Add", components.Primary, components.Small(), components.WithIcon(icons.Plus))(gtx)
+					m.addW = d.Size.X
+					return d
 				}),
 			)
+			// Flex lays out rigid children before the flexed one, so x
+			// (everything left of Add) is only complete here.
+			m.AddBounds = image.Rect(gtx.Dp(theme.S4)+x, 0, gtx.Dp(theme.S4)+x+m.addW, h)
+			return fd
 		})
 	})
 	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h)}

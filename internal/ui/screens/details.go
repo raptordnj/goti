@@ -126,6 +126,7 @@ func (d *Details) header(th *theme.Theme, v state.TaskView, now time.Time) layou
 						l := labelStyle(th, theme.Title, th.Text, v.FileName)
 						l.Font.Weight = theme.StyleTitle.Weight
 						l.MaxLines = 2
+						l.Truncator = "…"
 						return l.Layout(gtx)
 					}),
 					layout.Rigid(layout.Spacer{Height: theme.S1}.Layout),
