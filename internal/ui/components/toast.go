@@ -43,11 +43,11 @@ func ToastStack(th *theme.Theme, toasts []state.Toast, dismiss []widget.Clickabl
 }
 
 func toast(gtx layout.Context, th *theme.Theme, t state.Toast, btn *widget.Clickable) layout.Dimensions {
-	return widget.Border{Color: toastAccent(th, t.Kind), CornerRadius: theme.RadiusSm, Width: 1}.Layout(gtx,
-		background(th.Surface, theme.RadiusSm, func(gtx layout.Context) layout.Dimensions {
+	return widget.Border{Color: toastAccent(th, t.Kind), CornerRadius: theme.RadiusControl, Width: 1}.Layout(gtx,
+		background(th.Surface, theme.RadiusControl, func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: theme.S2, Bottom: theme.S2, Left: theme.S3, Right: theme.S1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(label(th, theme.TextMd, th.Text, t.Text).Layout),
+					layout.Rigid(label(th, theme.Body, th.Text, t.Text).Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						if btn == nil {
 							return layout.Dimensions{}

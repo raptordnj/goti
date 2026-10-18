@@ -15,7 +15,7 @@ import (
 // TextField is a labelled single editor with hint and optional error text.
 func TextField(th *theme.Theme, e *widget.Editor, labelText, hint, errText string) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
-		border := th.Border
+		border := th.Hairline
 		if errText != "" {
 			border = th.Error
 		}
@@ -23,11 +23,11 @@ func TextField(th *theme.Theme, e *widget.Editor, labelText, hint, errText strin
 			border = th.Focus
 		}
 		children := []layout.FlexChild{
-			layout.Rigid(label(th, theme.TextSm, th.TextMuted, labelText).Layout),
+			layout.Rigid(label(th, theme.Caption, th.TextMuted, labelText).Layout),
 			layout.Rigid(layout.Spacer{Height: theme.S1}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return widget.Border{Color: border, CornerRadius: theme.RadiusSm, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return background(th.Surface, theme.RadiusSm, func(gtx layout.Context) layout.Dimensions {
+				return widget.Border{Color: border, CornerRadius: theme.RadiusControl, Width: 1}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return background(th.Surface, theme.RadiusControl, func(gtx layout.Context) layout.Dimensions {
 						return layout.UniformInset(theme.S2).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							gtx.Constraints.Min.X = gtx.Constraints.Max.X
 							return editor(gtx, th, e, hint)
@@ -39,7 +39,7 @@ func TextField(th *theme.Theme, e *widget.Editor, labelText, hint, errText strin
 		if errText != "" {
 			children = append(children,
 				layout.Rigid(layout.Spacer{Height: theme.S1}.Layout),
-				layout.Rigid(label(th, theme.TextSm, th.Error, errText).Layout))
+				layout.Rigid(label(th, theme.Caption, th.Error, errText).Layout))
 		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 	}
@@ -48,13 +48,13 @@ func TextField(th *theme.Theme, e *widget.Editor, labelText, hint, errText strin
 func editor(gtx layout.Context, th *theme.Theme, e *widget.Editor, hint string) layout.Dimensions {
 	if e.Len() == 0 {
 		macro := op.Record(gtx.Ops)
-		label(th, theme.TextMd, th.TextMuted, hint).Layout(gtx)
+		label(th, theme.Body, th.TextMuted, hint).Layout(gtx)
 		hintCall := macro.Stop()
 		defer hintCall.Add(gtx.Ops)
 	}
 	textMat := colorMacro(gtx, th.Text)
 	selMat := colorMacro(gtx, theme.WithAlpha(th.Accent, 0x60))
-	return e.Layout(gtx, th.Shaper, font.Font{}, theme.TextMd, textMat, selMat)
+	return e.Layout(gtx, th.Shaper, font.Font{}, theme.Body, textMat, selMat)
 }
 
 func colorMacro(gtx layout.Context, c color.NRGBA) op.CallOp {

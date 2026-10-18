@@ -135,7 +135,7 @@ func (st *Settings) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapsho
 	layout.Background{}.Layout(gtx, paint, func(gtx layout.Context) layout.Dimensions {
 		ws := st.fields(th)
 		st.list.Axis = layout.Vertical
-		return layout.UniformInset(theme.S5).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.UniformInset(theme.S6).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return st.list.Layout(gtx, len(ws), func(gtx layout.Context, i int) layout.Dimensions {
 				return layout.Inset{Bottom: theme.S4}.Layout(gtx, ws[i])
 			})
@@ -152,7 +152,7 @@ func onOff(b bool) string {
 }
 
 func (st *Settings) choice(th *theme.Theme, name string, c *widget.Clickable, value string) layout.Widget {
-	return Column(theme.S1, Label(th, theme.TextSm, th.TextMuted, name),
+	return Column(theme.S1, Label(th, theme.Caption, th.TextMuted, name),
 		components.Button(th, c, value, components.Secondary))
 }
 
@@ -170,7 +170,7 @@ func (st *Settings) fields(th *theme.Theme) []layout.Widget {
 		}
 	}
 	return []layout.Widget{
-		bold(th, theme.TextXl, th.Text, "Settings"),
+		bold(th, theme.Display, th.Text, "Settings"),
 		Column(0, tf(&st.maxSim, "MaxSimultaneous", "Simultaneous downloads", "1-10"), errText("MaxSimultaneous")),
 		st.choice(th, "Resume downloads on startup", &st.resumeBtn, onOff(st.resumeOnStart)),
 		Column(0, tf(&st.dir, "DownloadDir", "Download folder", "Folder path"), errText("DownloadDir")),
@@ -178,7 +178,7 @@ func (st *Settings) fields(th *theme.Theme) []layout.Widget {
 		Column(0, tf(&st.globalLimit, "GlobalRateLimit", "Global speed limit (bytes/s, 0 = unlimited)", "0"), errText("GlobalRateLimit")),
 		Column(0, tf(&st.perLimit, "PerDownloadLimit", "Per-download limit (bytes/s, 0 = unlimited)", "0"), errText("PerDownloadLimit")),
 		st.choice(th, "When the file exists", &st.policyBtn, string(st.policy)),
-		Label(th, theme.TextSm, th.TextMuted, EngineNote),
+		Label(th, theme.Caption, th.TextMuted, EngineNote),
 		st.choice(th, "Theme", &st.themeBtn, string(st.theme)),
 		st.choice(th, "Close to tray", &st.trayBtn, onOff(st.closeToTray)),
 		Row(components.Button(th, &st.save, "Save", components.Primary),

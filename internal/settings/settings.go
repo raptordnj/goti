@@ -31,6 +31,7 @@ type Settings struct {
 	Theme            Theme
 	CloseToTray      bool
 	TrayNoticeShown  bool
+	ReduceMotion     bool
 }
 
 // Default returns the default settings.

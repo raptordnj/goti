@@ -5,39 +5,57 @@ package theme
 import (
 	"image/color"
 
-	"gioui.org/font/gofont"
+	"gioui.org/font"
 	"gioui.org/text"
 	"gioui.org/unit"
+	"github.com/raptordnj/swiftfetch/internal/domain"
 )
 
 // Spacing scale.
 const (
+	S0 unit.Dp = 2
 	S1 unit.Dp = 4
 	S2 unit.Dp = 8
 	S3 unit.Dp = 12
 	S4 unit.Dp = 16
-	S5 unit.Dp = 24
-	S6 unit.Dp = 32
+	S5 unit.Dp = 20
+	S6 unit.Dp = 24
 )
 
 // Type scale.
 const (
-	TextSm unit.Sp = 12
-	TextMd unit.Sp = 14
-	TextLg unit.Sp = 16
-	TextXl unit.Sp = 20
+	Caption unit.Sp = 11
+	Body    unit.Sp = 13
+	Title   unit.Sp = 15
+	Display unit.Sp = 18
+)
+
+// TextStyle is a size plus weight.
+type TextStyle struct {
+	Size   unit.Sp
+	Weight font.Weight
+}
+
+// Text styles.
+var (
+	StyleCaption    = TextStyle{Caption, font.Medium}
+	StyleBody       = TextStyle{Body, font.Normal}
+	StyleBodyStrong = TextStyle{Body, font.Medium}
+	StyleTitle      = TextStyle{Title, font.SemiBold}
+	StyleDisplay    = TextStyle{Display, font.SemiBold}
 )
 
 // Corner radii.
 const (
-	RadiusSm unit.Dp = 6
-	RadiusMd unit.Dp = 10
+	RadiusControl unit.Dp = 6
+	RadiusRow     unit.Dp = 8
+	RadiusPanel   unit.Dp = 12
 )
 
 // Palette is the set of color tokens.
 type Palette struct {
-	Bg, Surface, SurfaceAlt, Text, TextMuted, Accent, OnAccent, Border,
-	Success, Warning, Error, Focus color.NRGBA
+	Bg, Surface, SurfaceSunken, Hairline, Text, TextMuted, TextFaint,
+	Accent, AccentSoft, OnAccent, Success, Warning, Error, Focus color.NRGBA
 }
 
 func rgb(v uint32) color.NRGBA {
@@ -46,22 +64,44 @@ func rgb(v uint32) color.NRGBA {
 
 // Light returns the light palette.
 func Light() Palette {
+	accent := rgb(0x3461F5)
 	return Palette{
-		Bg: rgb(0xF6F7F9), Surface: rgb(0xFFFFFF), SurfaceAlt: rgb(0xEEF0F3),
-		Text: rgb(0x1A1D23), TextMuted: rgb(0x5B6270),
-		Accent: rgb(0x1F5FD1), OnAccent: rgb(0xFFFFFF), Border: rgb(0xD3D7DE),
-		Success: rgb(0x1E7B34), Warning: rgb(0x8A5A00), Error: rgb(0xB42318), Focus: rgb(0x1F5FD1),
+		Bg: rgb(0xF7F8FA), Surface: rgb(0xFFFFFF), SurfaceSunken: rgb(0xF1F3F6), Hairline: rgb(0xE4E7EC),
+		Text: rgb(0x111418), TextMuted: rgb(0x5E6673), TextFaint: rgb(0x8A919C),
+		Accent: accent, AccentSoft: WithAlpha(accent, 0x1A), OnAccent: rgb(0xFFFFFF),
+		Success: rgb(0x12805C), Warning: rgb(0xA15C07), Error: rgb(0xC8322B),
+		Focus: WithAlpha(accent, 0x8C), // 55 %
 	}
 }
 
 // Dark returns the dark palette.
 func Dark() Palette {
+	accent := rgb(0x6C8CFF)
 	return Palette{
-		Bg: rgb(0x111317), Surface: rgb(0x1A1D23), SurfaceAlt: rgb(0x242830),
-		Text: rgb(0xE8EAED), TextMuted: rgb(0xA3A9B5),
-		Accent: rgb(0x6EA2FF), OnAccent: rgb(0x0B1220), Border: rgb(0x343944),
-		Success: rgb(0x4ADE80), Warning: rgb(0xFBBF24), Error: rgb(0xFF8A80), Focus: rgb(0x8AB4FF),
+		Bg: rgb(0x0E0F12), Surface: rgb(0x16181D), SurfaceSunken: rgb(0x1C1F25), Hairline: rgb(0x272B33),
+		Text: rgb(0xECEEF1), TextMuted: rgb(0xA0A7B3), TextFaint: rgb(0x6F7682),
+		Accent: accent, AccentSoft: WithAlpha(accent, 0x1A), OnAccent: rgb(0x0B1020),
+		Success: rgb(0x3DD39A), Warning: rgb(0xF5B13D), Error: rgb(0xFF7A70),
+		Focus: WithAlpha(accent, 0x99), // 60 %
 	}
+}
+
+// StateColor is the semantic colour of a download state.
+func StateColor(p Palette, s domain.State, interrupted bool) color.NRGBA {
+	if interrupted {
+		return p.Warning
+	}
+	switch s {
+	case domain.StatePaused:
+		return p.Warning
+	case domain.StateCompleted:
+		return p.Success
+	case domain.StateFailed, domain.StateCancelled:
+		return p.Error
+	case domain.StateQueued, domain.StateInspecting:
+		return p.TextMuted
+	}
+	return p.Accent
 }
 
 // Theme is a palette plus the text shaper.
@@ -70,9 +110,9 @@ type Theme struct {
 	Shaper *text.Shaper
 }
 
-// New builds a Theme with the embedded Go fonts.
+// New builds a Theme with the embedded Inter fonts.
 func New(p Palette) *Theme {
-	return &Theme{Palette: p, Shaper: text.NewShaper(text.WithCollection(gofont.Collection()))}
+	return &Theme{Palette: p, Shaper: text.NewShaper(text.WithCollection(InterFaces()))}
 }
 
 // WithAlpha returns c with alpha a (for hover/pressed/disabled overlays).

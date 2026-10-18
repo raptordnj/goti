@@ -56,7 +56,7 @@ func (c *Confirm) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot,
 		title, msg, okTxt = "Remove download?", "Remove "+c.task.FileName+" from the list?", "Remove"
 	}
 	body := screens.Column(theme.S3,
-		screens.Text(th, theme.TextMd, th.Text, msg, 3),
+		screens.Text(th, theme.Body, th.Text, msg, 3),
 		func(gtx layout.Context) layout.Dimensions {
 			if !c.ShowsDeletePartial {
 				return layout.Dimensions{}

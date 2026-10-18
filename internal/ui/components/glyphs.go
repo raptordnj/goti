@@ -1,6 +1,6 @@
 package components
 
-// Glyphs used by components. Each must exist in gofont.Collection()
+// Glyphs used by components. Each must exist in Inter faces
 // (checked by TestGlyphsCovered); ⋯ and ✕ do not.
 const (
 	glyphMenu    = "…" // U+2026

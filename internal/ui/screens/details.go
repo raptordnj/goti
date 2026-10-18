@@ -76,7 +76,7 @@ func (d *Details) events(gtx layout.Context, v state.TaskView) []Intent {
 
 // field is a muted caption above a wrapping value.
 func field(th *theme.Theme, name, value string) layout.Widget {
-	return Column(theme.S1, Label(th, theme.TextSm, th.TextMuted, name), Text(th, theme.TextMd, th.Text, value, 0))
+	return Column(theme.S1, Label(th, theme.Caption, th.TextMuted, name), Text(th, theme.Body, th.Text, value, 0))
 }
 
 func (d *Details) content(th *theme.Theme, v state.TaskView, now time.Time) []layout.Widget {
@@ -94,9 +94,9 @@ func (d *Details) content(th *theme.Theme, v state.TaskView, now time.Time) []la
 	ws := []layout.Widget{
 		Row(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X -= gtx.Dp(theme.S6 * 2)
-			return bold(th, theme.TextLg, th.Text, v.FileName)(gtx)
+			return bold(th, theme.Title, th.Text, v.FileName)(gtx)
 		}, components.Button(th, &d.close, "Close", components.Ghost)),
-		Label(th, theme.TextSm, th.TextMuted, state.StatusText(v, now)),
+		Label(th, theme.Caption, th.TextMuted, state.StatusText(v, now)),
 		field(th, "URL", v.URL),
 		field(th, "Destination", v.DestPath),
 		field(th, "Size", size),
@@ -122,9 +122,9 @@ func (d *Details) content(th *theme.Theme, v state.TaskView, now time.Time) []la
 		}
 	}
 	if n := len(v.Retries); n > 0 {
-		ws = append(ws, Label(th, theme.TextSm, th.TextMuted, "Retry history"))
+		ws = append(ws, Label(th, theme.Caption, th.TextMuted, "Retry history"))
 		for _, a := range v.Retries[max(0, n-maxRetriesShown):] {
-			ws = append(ws, Text(th, theme.TextSm, th.Text,
+			ws = append(ws, Text(th, theme.Caption, th.Text,
 				fmt.Sprintf("#%d %s%s%s", a.Attempt, a.Kind, metaSep, a.Message), 2))
 		}
 	}

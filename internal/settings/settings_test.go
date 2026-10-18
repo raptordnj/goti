@@ -2,10 +2,12 @@ package settings_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/raptordnj/swiftfetch/internal/config"
@@ -120,5 +122,21 @@ func TestLoadMissingDefaults(t *testing.T) {
 	_ = db.PutSetting(context.Background(), "app", "not json")
 	if got := r.Load(context.Background()); got != settings.Default() {
 		t.Fatalf("corrupt: %+v", got)
+	}
+}
+
+func TestReduceMotionDefaultAndJSON(t *testing.T) {
+	if settings.Default().ReduceMotion {
+		t.Fatal("default must be false")
+	}
+	s := settings.Default()
+	s.ReduceMotion = true
+	b, err := json.Marshal(s)
+	if err != nil || !strings.Contains(string(b), `"ReduceMotion":true`) {
+		t.Fatalf("%s %v", b, err)
+	}
+	var back settings.Settings
+	if err := json.Unmarshal(b, &back); err != nil || !back.ReduceMotion {
+		t.Fatalf("round trip %+v %v", back, err)
 	}
 }

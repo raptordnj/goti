@@ -78,7 +78,7 @@ func statusColor(th *theme.Theme, v state.TaskView) color.NRGBA {
 func TaskRow(th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		w.Shown = w.Shown[:0]
-		return FocusRing(gtx, th, &w.Select, theme.RadiusMd, func(gtx layout.Context) layout.Dimensions {
+		return FocusRing(gtx, th, &w.Select, theme.RadiusRow, func(gtx layout.Context) layout.Dimensions {
 			return w.Select.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
 				gtx.Constraints.Min.Y = 0
@@ -86,7 +86,7 @@ func TaskRow(th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time) la
 				if w.Select.Hovered() {
 					bg = theme.Mix(th.Surface, th.Text, 0.04)
 				}
-				return background(bg, theme.RadiusMd, func(gtx layout.Context) layout.Dimensions {
+				return background(bg, theme.RadiusRow, func(gtx layout.Context) layout.Dimensions {
 					return layout.UniformInset(theme.S3).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return rowBody(gtx, th, v, w, now)
 					})
@@ -105,13 +105,13 @@ func rowBody(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidget
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-				layout.Rigid(background(th.SurfaceAlt, theme.RadiusSm, func(gtx layout.Context) layout.Dimensions {
-					return layout.UniformInset(theme.S1).Layout(gtx, label(th, theme.TextSm, th.TextMuted, fileGlyph(v.FileName)).Layout)
+				layout.Rigid(background(th.SurfaceSunken, theme.RadiusControl, func(gtx layout.Context) layout.Dimensions {
+					return layout.UniformInset(theme.S1).Layout(gtx, label(th, theme.Caption, th.TextMuted, fileGlyph(v.FileName)).Layout)
 				})),
 				layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					w.ShownName = fitName(v.FileName, runeBudget(gtx, gtx.Constraints.Max.X))
-					l := label(th, theme.TextMd, th.Text, w.ShownName)
+					l := label(th, theme.Body, th.Text, w.ShownName)
 					l.Font.Weight = font.Medium
 					return l.Layout(gtx)
 				}),
@@ -119,11 +119,11 @@ func rowBody(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidget
 			)
 		}),
 		gap,
-		layout.Rigid(label(th, theme.TextSm, statusColor(th, v), state.StatusText(v, now)).Layout),
+		layout.Rigid(label(th, theme.Caption, statusColor(th, v), state.StatusText(v, now)).Layout),
 		gap,
 		layout.Rigid(ProgressBar(th, frac)),
 		gap,
-		layout.Rigid(label(th, theme.TextSm, th.TextMuted, rowMeta(v)).Layout),
+		layout.Rigid(label(th, theme.Caption, th.TextMuted, rowMeta(v)).Layout),
 	)
 }
 
@@ -158,10 +158,10 @@ func rowButtonSpecs(w *RowWidgets) []rowButton {
 	}
 }
 
-// runeBudget conservatively estimates how many TextMd runes fit in px
+// runeBudget conservatively estimates how many Body runes fit in px
 // (average Go font advance is about 0.55em; 0.6em leaves headroom).
 func runeBudget(gtx layout.Context, px int) int {
-	per := float32(gtx.Sp(theme.TextMd)) * 0.6
+	per := float32(gtx.Sp(theme.Body)) * 0.6
 	if per <= 0 {
 		return 8
 	}

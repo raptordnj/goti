@@ -169,9 +169,9 @@ func (m *Main) header(gtx layout.Context, th *theme.Theme, snap *state.Snapshot)
 	}
 	return layout.UniformInset(theme.S4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(bold(th, theme.TextXl, th.Text, "SwiftFetch")),
+			layout.Rigid(bold(th, theme.Display, th.Text, "SwiftFetch")),
 			layout.Rigid(layout.Spacer{Width: theme.S3}.Layout),
-			layout.Flexed(1, Label(th, theme.TextSm, th.TextMuted, agg)),
+			layout.Flexed(1, Label(th, theme.Caption, th.TextMuted, agg)),
 			layout.Rigid(Row(
 				components.Button(th, &m.add, "Add download", components.Primary),
 				components.Button(th, &m.pauseAll, allTxt, components.Secondary),

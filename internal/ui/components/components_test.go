@@ -11,10 +11,6 @@ import (
 	"gioui.org/op"
 	"gioui.org/unit"
 	"gioui.org/widget"
-	"golang.org/x/image/font/gofont/gobold"
-	"golang.org/x/image/font/gofont/gomedium"
-	"golang.org/x/image/font/gofont/goregular"
-	"golang.org/x/image/font/sfnt"
 
 	"github.com/raptordnj/swiftfetch/internal/domain"
 	"github.com/raptordnj/swiftfetch/internal/ui/state"
@@ -118,17 +114,10 @@ func TestTaskRowButtonsMatchCan(t *testing.T) {
 }
 
 func TestGlyphsCovered(t *testing.T) {
-	var buf sfnt.Buffer
-	for _, ttf := range [][]byte{goregular.TTF, gomedium.TTF, gobold.TTF} {
-		f, err := sfnt.Parse(ttf)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, s := range append(usedGlyphs(), state.TrayNotice) {
-			for _, r := range s {
-				if g, _ := f.GlyphIndex(&buf, r); g == 0 {
-					t.Errorf("glyph %q (in %q) missing from Go fonts", r, s)
-				}
+	for _, s := range append(usedGlyphs(), state.TrayNotice) {
+		for _, r := range s {
+			if !theme.Covers(r) {
+				t.Errorf("glyph %q (in %q) missing from Inter", r, s)
 			}
 		}
 	}

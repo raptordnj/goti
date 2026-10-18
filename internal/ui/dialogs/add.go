@@ -98,8 +98,8 @@ func (a *Add) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot, _ t
 		components.TextField(th, &a.url, "URL", "https://", a.urlErr),
 		recordIf(a.urlErr),
 		screens.Column(theme.S1,
-			screens.Label(th, theme.TextSm, th.TextMuted, "Destination folder"),
-			screens.Row(screens.Label(th, theme.TextMd, th.Text, a.destDir),
+			screens.Label(th, theme.Caption, th.TextMuted, "Destination folder"),
+			screens.Row(screens.Label(th, theme.Body, th.Text, a.destDir),
 				components.Button(th, &a.change, "Change…", components.Secondary)),
 		),
 		components.TextField(th, &a.name, "File name (optional)", "Detected from the server", ""),
@@ -107,7 +107,7 @@ func (a *Add) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot, _ t
 			if a.submitErr == "" {
 				return layout.Dimensions{}
 			}
-			return screens.Text(th, theme.TextSm, th.Error, a.submitErr, 3)(gtx)
+			return screens.Text(th, theme.Caption, th.Error, a.submitErr, 3)(gtx)
 		},
 	)
 	actions := screens.Row(components.Button(th, &a.cancel, "Cancel", components.Ghost),

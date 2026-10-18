@@ -21,7 +21,7 @@ func ProgressBar(th *theme.Theme, frac float32) layout.Widget {
 		}
 		sz := image.Pt(w, h)
 		r := h / 2
-		paint.FillShape(gtx.Ops, th.SurfaceAlt, clip.UniformRRect(image.Rectangle{Max: sz}, r).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, th.SurfaceSunken, clip.UniformRRect(image.Rectangle{Max: sz}, r).Op(gtx.Ops))
 		if frac < 0 {
 			defer clip.UniformRRect(image.Rectangle{Max: sz}, r).Push(gtx.Ops).Pop()
 			stripe, gap := gtx.Dp(theme.S4), gtx.Dp(theme.S2)
