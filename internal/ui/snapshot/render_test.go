@@ -72,6 +72,15 @@ func scenes() []scene {
 			st.ScrollToAbout()
 			return func(gtx layout.Context) { st.Layout(gtx, th, snap, Now) }
 		}},
+		{"main-menu", Busy, func(th *theme.Theme, snap *state.Snapshot) func(layout.Context) {
+			var m screens.Main
+			m.OpenMenu(snap, "1")
+			return func(gtx layout.Context) {
+				m.Layout(gtx, th, snap, Now) // first pass anchors the menu to the row
+				gtx.Ops.Reset()
+				m.Layout(gtx, th, snap, Now)
+			}
+		}},
 		{"toasts", WithToasts, mainScene("", nil)},
 		{"offline", Offline, mainScene("", nil)},
 	}

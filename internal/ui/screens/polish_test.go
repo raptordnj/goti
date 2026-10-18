@@ -1,6 +1,12 @@
 package screens
 
 import (
+	"slices"
+	"time"
+
+	"gioui.org/f32"
+	"gioui.org/io/pointer"
+	"github.com/raptordnj/goti/internal/settings"
 	"testing"
 
 	"gioui.org/layout"
@@ -122,5 +128,50 @@ func TestDetailsNameCappedTwoLines(t *testing.T) {
 	// Two Title lines at most: one extra line (~15-20 px) over a single-line name.
 	if hLong-hShort > 24 || hLong <= hShort {
 		t.Errorf("long name header %d vs short %d: want exactly one extra line", hLong, hShort)
+	}
+}
+
+func TestDoubleClickCompletedOpens(t *testing.T) {
+	done := task("a", domain.StateCompleted, state.SectionCompleted)
+	done.CanOpen = true
+	run := func(v state.TaskView, clicks int) []Intent {
+		var m Main
+		hs := newHarness(800, 600)
+		s := snapOf(v)
+		var got []Intent
+		lay := func(gtx layout.Context) { got = append(got, m.Layout(gtx, th, s, now)...) }
+		hs.frame(lay)
+		y, ok := m.rowY(s, v.ID)
+		if !ok {
+			t.Fatal("row not visible")
+		}
+		pos := f32.Pt(200, float32(y+20))
+		for i := range clicks {
+			at := time.Duration(i) * 50 * time.Millisecond
+			hs.r.Queue(
+				pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: pos, Time: at},
+				pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: pos, Time: at + 10*time.Millisecond},
+			)
+		}
+		hs.frame(lay)
+		return got
+	}
+	got := run(done, 2)
+	if !slices.Contains(got, Intent(IntentOpen{Path: done.DestPath})) {
+		t.Fatalf("double-click completed: %#v", got)
+	}
+	act := task("b", domain.StateDownloading, state.SectionActive)
+	got = run(act, 2)
+	if !slices.Contains(got, Intent(IntentSelect{ID: "b"})) || slices.ContainsFunc(got, func(i Intent) bool { _, ok := i.(IntentOpen); return ok }) {
+		t.Fatalf("double-click active: %#v", got)
+	}
+}
+
+func TestSettingsLimitOverflow(t *testing.T) {
+	var st Settings
+	st.Open(settings.Default())
+	st.globalLimit.SetText("9223372036854775")
+	if _, errs := st.collect(); errs["GlobalRateLimit"] != "Too large" {
+		t.Fatalf("errs %v", errs)
 	}
 }

@@ -53,6 +53,18 @@ make cross                      # linux/windows/darwin x amd64/arm64 into bin/
 the engine, with a small download queue and a system tray. Unlike the engine and
 the CLI, it needs cgo and platform graphics headers.
 
+### Screenshots
+
+| Light | Dark |
+|---|---|
+| ![Main window, light](docs/screenshots/main-busy-light-1100x720.png) | ![Main window, dark](docs/screenshots/main-busy-dark-1100x720.png) |
+| ![Details pane, light](docs/screenshots/details-light-1100x720.png) | ![Details pane, dark](docs/screenshots/details-dark-1100x720.png) |
+| ![Settings, light](docs/screenshots/settings-light-1100x720.png) | ![Settings, dark](docs/screenshots/settings-dark-1100x720.png) |
+
+The images are rendered headlessly from fixtures (`make screenshots`); the
+full set, including narrow layouts, dialogs, the row menu and toasts, is in
+[`docs/screenshots/`](docs/screenshots/).
+
 ### Build dependencies
 
 - Linux (Arch): `pacman -S wayland libxkbcommon libxcursor libxfixes vulkan-headers mesa`
@@ -69,6 +81,19 @@ go build ./cmd/goti      # or: make gui  (writes bin/goti)
 
 The data directory defaults to the OS location listed under Configuration
 defaults. Override it with `--data-dir` or `GOTI_DATA_DIR`.
+
+The window opens at 960×640 (minimum 640×420). From 1000 px wide, details
+show as a side pane; narrower windows use a bottom sheet.
+
+### Mouse
+
+- Click a row to select it and show its details; double-click a completed
+  download to open the file.
+- Each row has one primary action (pause, resume, retry, open or cancel);
+  the `⋯` button on a hovered or selected row opens the rest (show in
+  folder, copy link or path, restart, cancel, remove).
+- Completed and Failed sections collapse from their headers.
+- Settings > Appearance > Reduce motion turns off all animations.
 
 ### Keyboard shortcuts
 
@@ -303,6 +328,7 @@ make fuzz     # every Fuzz* target for 30 s
 make bench    # loopback smoke benchmarks
 make build    # CGO_ENABLED=0 CLI build
 make cross    # six OS/arch targets
+make screenshots  # re-render docs/screenshots (needs a headless GPU)
 gofmt -l .  &&  go vet ./...
 ```
 

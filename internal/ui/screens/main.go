@@ -18,6 +18,7 @@ import (
 
 	"github.com/raptordnj/goti/internal/app"
 	"github.com/raptordnj/goti/internal/brand"
+	"github.com/raptordnj/goti/internal/domain"
 	"github.com/raptordnj/goti/internal/platform"
 	"github.com/raptordnj/goti/internal/ui/components"
 	"github.com/raptordnj/goti/internal/ui/icons"
@@ -79,6 +80,73 @@ type Main struct {
 	details                           Details
 	dismiss                           []widget.Clickable
 	toastFades                        components.ToastFades
+	pending                           map[string]optimistic // optimistic primary icons by task ID
+	scrollTo                          string                // task to scroll into view next layout
+}
+
+// optimistic is a primary-action icon shown before the snapshot confirms a
+// command; it lasts until the task's state changes.
+type optimistic struct {
+	icon        string
+	st          domain.State
+	interrupted bool
+}
+
+// SetOptimistic shows icon ("pause", "resume") as v's primary action until
+// v's state changes or ClearOptimistic is called.
+func (m *Main) SetOptimistic(v state.TaskView, icon string) {
+	if m.pending == nil {
+		m.pending = map[string]optimistic{}
+	}
+	m.pending[v.ID] = optimistic{icon, v.State, v.Interrupted}
+}
+
+// Optimistic returns the optimistic icon of task id ("" = none).
+func (m *Main) Optimistic(id string) string { return m.pending[id].icon }
+
+// ClearOptimistic drops the optimistic icon of id, or of every task when id
+// is "".
+func (m *Main) ClearOptimistic(id string) {
+	if id == "" {
+		clear(m.pending)
+		return
+	}
+	delete(m.pending, id)
+}
+
+// SyncOptimistic drops optimistic icons of tasks that changed state or are
+// gone in snap.
+func (m *Main) SyncOptimistic(snap *state.Snapshot) {
+	if len(m.pending) == 0 {
+		return
+	}
+	for id, p := range m.pending {
+		v := m.findTask(snap, id)
+		if v == nil || v.State != p.st || v.Interrupted != p.interrupted {
+			delete(m.pending, id)
+		}
+	}
+}
+
+// ScrollTo scrolls task id into view on the next layout (expanding its
+// section if collapsed).
+func (m *Main) ScrollTo(id string) { m.scrollTo = id }
+
+// ScrollTarget is the task a pending ScrollTo will reveal ("" = none).
+func (m *Main) ScrollTarget() string { return m.scrollTo }
+
+// OpenMenu opens task id's overflow menu (it is anchored once the row has
+// been laid out).
+func (m *Main) OpenMenu(snap *state.Snapshot, id string) {
+	v := m.findTask(snap, id)
+	if v == nil {
+		return
+	}
+	m.CloseMenu()
+	w := m.Row(id)
+	m.menuFor = id
+	w.Menu.SetItems(components.RowMenuItems(*v))
+	w.Menu.Open = true
 }
 
 // Row returns the widget state of task id, creating it if needed.
@@ -461,6 +529,9 @@ func (m *Main) taskList(gtx layout.Context, th *theme.Theme, snap *state.Snapsho
 	if len(snap.Tasks) == 0 {
 		return layout.Dimensions{Size: gtx.Constraints.Max} // drawn window-centred by Layout
 	}
+	if m.scrollTo != "" {
+		m.reveal(snap)
+	}
 	items := m.items(snap)
 	for _, it := range items {
 		if it.header {
@@ -484,6 +555,30 @@ func (m *Main) taskList(gtx layout.Context, th *theme.Theme, snap *state.Snapsho
 	})
 }
 
+// reveal expands the section of m.scrollTo and scrolls its row (with the
+// section header above it when that is the previous item) into view.
+func (m *Main) reveal(snap *state.Snapshot) {
+	id := m.scrollTo
+	m.scrollTo = ""
+	v := m.findTask(snap, id)
+	if v == nil {
+		return
+	}
+	if c := m.Collapsible(v.Section); c != nil {
+		c.Value = false
+	}
+	for i, it := range m.items(snap) {
+		if !it.header && snap.Tasks[it.task].ID == id {
+			if i > 0 && m.items(snap)[i-1].header {
+				i--
+			}
+			m.list.Position.First, m.list.Position.Offset = i, 0
+			m.list.Position.BeforeEnd = true
+			return
+		}
+	}
+}
+
 func (m *Main) listItem(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time, it listItem, first bool) layout.Dimensions {
 	if it.header {
 		in := layout.Inset{Top: theme.S3}
@@ -493,6 +588,7 @@ func (m *Main) listItem(gtx layout.Context, th *theme.Theme, snap *state.Snapsho
 		return in.Layout(gtx, components.SectionHeader(th, sectionTitles[it.sec], snap.Counts[it.sec], m.Collapsible(it.sec)))
 	}
 	v := snap.Tasks[it.task]
+	m.Row(v.ID).Optimistic = m.pending[v.ID].icon
 	return layout.Inset{Bottom: theme.S0}.Layout(gtx, components.TaskRow(th, v, m.Row(v.ID), now, v.ID == m.Selected))
 }
 
@@ -544,7 +640,19 @@ func (m *Main) rowEvents(gtx layout.Context, v state.TaskView, emit func(Intent)
 	if w.Open.Clicked(gtx) && v.CanOpen {
 		emit(IntentOpen{Path: v.DestPath})
 	}
-	if w.Select.Clicked(gtx) {
+	if w.Cancel.Clicked(gtx) && v.CanCancel {
+		emit(IntentConfirm{Kind: ConfirmCancel, ID: v.ID})
+	}
+	for {
+		c, ok := w.Select.Update(gtx)
+		if !ok {
+			break
+		}
+		// Double-click opens a finished file; otherwise a click selects.
+		if c.NumClicks >= 2 && v.State == domain.StateCompleted && v.CanOpen {
+			emit(IntentOpen{Path: v.DestPath})
+			continue
+		}
 		m.Selected = v.ID
 		emit(IntentSelect{ID: v.ID})
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -53,7 +54,7 @@ type Settings struct {
 	resumeOnStart, closeToTray, reduceMotion widget.Bool
 	policy, theme                            widget.Enum
 	shownTheme                               string
-	save, cancel                             widget.Clickable
+	save, cancel, change                     widget.Clickable
 	list                                     widget.List
 	errs                                     map[string]string
 }
@@ -85,6 +86,9 @@ func (st *Settings) collect() (settings.Settings, map[string]string) {
 		}
 		n, err := strconv.ParseInt(txt, 10, 64)
 		switch {
+		case errors.Is(err, strconv.ErrRange) && !strings.HasPrefix(txt, "-"), err == nil && n > math.MaxInt64/1024:
+			errs[field] = "Too large"
+			return old
 		case err != nil:
 			errs[field] = "Enter a whole number of KB/s"
 		case n < 0:
@@ -122,6 +126,9 @@ func (st *Settings) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapsho
 	var out []Intent
 	if st.cancel.Clicked(gtx) {
 		out = append(out, IntentCloseSettings{})
+	}
+	if st.change.Clicked(gtx) {
+		out = append(out, IntentPickFolder{})
 	}
 	if st.save.Clicked(gtx) {
 		s, errs := st.collect()
@@ -314,7 +321,13 @@ func (st *Settings) groups(th *theme.Theme) []layout.Widget {
 		bold(th, theme.Display, th.Text, "Settings"),
 		settingsGroup(th, "Downloads",
 			setting{"Download folder", "Where new downloads are saved", st.errs["DownloadDir"],
-				sized(260, components.TextField(th, &st.dir, "", "Folder path", ""))},
+				func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Rigid(sized(220, components.TextField(th, &st.dir, "", "Folder path", ""))),
+						layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
+						layout.Rigid(components.Button(th, &st.change, "Change…", components.Secondary, components.Small())),
+					)
+				}},
 			setting{"Simultaneous downloads", "How many files download at once (1–10)", st.errs["MaxSimultaneous"],
 				components.Stepper(th, &st.maxSim, 1, 10)},
 			setting{"When the file exists", "What to do if a file with the same name is already there", st.errs["ExistingPolicy"],
@@ -336,6 +349,15 @@ func (st *Settings) groups(th *theme.Theme) []layout.Widget {
 		),
 		st.about(th),
 	}
+}
+
+// Dir returns the download folder field's text.
+func (st *Settings) Dir() string { return st.dir.Text() }
+
+// SetDir puts a picked folder into the download folder field.
+func (st *Settings) SetDir(p string) {
+	st.dir.SetText(p)
+	delete(st.errs, "DownloadDir")
 }
 
 // ScrollToAbout scrolls the form so the About group is visible.

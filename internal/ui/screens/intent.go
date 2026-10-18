@@ -37,7 +37,8 @@ type (
 		Kind ConfirmKind
 		ID   string
 	}
-	// IntentPickFolder opens the native folder picker for the Add dialog.
+	// IntentPickFolder opens the native folder picker; the result goes to
+	// the Add dialog or Settings, whichever is open.
 	IntentPickFolder struct{}
 	// IntentOpen opens Path, or reveals it in the file manager.
 	IntentOpen struct {

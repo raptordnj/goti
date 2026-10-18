@@ -15,6 +15,7 @@ import (
 	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/widget"
+	"gioui.org/widget/material"
 
 	"github.com/raptordnj/goti/internal/domain"
 	"github.com/raptordnj/goti/internal/platform"
@@ -38,14 +39,18 @@ const (
 // width of the text column in px. MoreAt is the bottom-right corner of the
 // more button relative to the row origin (menu anchor).
 type RowWidgets struct {
-	Pause, Resume, Retry, Open, More, Select widget.Clickable
-	Hover                                    gesture.Hover
-	Progress                                 anim.Value
-	Menu                                     MenuState
-	Shown                                    []string
-	ShownName                                string
-	NameWidth                                int
-	MoreAt                                   image.Point
+	Pause, Resume, Retry, Open, Cancel, More, Select widget.Clickable
+	Hover                                            gesture.Hover
+	Progress                                         anim.Value
+	Menu                                             MenuState
+	Shown                                            []string
+	ShownName                                        string
+	NameWidth                                        int
+	MoreAt                                           image.Point
+	// Optimistic, when set, is the primary action ("pause", "resume",
+	// "retry") to show in place of the state's own while a command is in
+	// flight; the owner clears it when the task changes or the command fails.
+	Optimistic string
 
 	hot, sel anim.Value
 }
@@ -79,6 +84,12 @@ type rowButton struct {
 
 // primaryAction is the one always-visible state action of v (nil if none).
 func primaryAction(v state.TaskView, w *RowWidgets) *rowButton {
+	switch w.Optimistic {
+	case "pause":
+		return &rowButton{"pause", "Pause download", icons.Pause, &w.Pause}
+	case "resume":
+		return &rowButton{"resume", "Resume download", icons.Play, &w.Resume}
+	}
 	switch {
 	case v.CanPause:
 		return &rowButton{"pause", "Pause download", icons.Pause, &w.Pause}
@@ -88,6 +99,8 @@ func primaryAction(v state.TaskView, w *RowWidgets) *rowButton {
 		return &rowButton{"retry", "Retry download", icons.Retry, &w.Retry}
 	case v.CanOpen:
 		return &rowButton{"open", "Open file", icons.File, &w.Open}
+	case v.CanCancel:
+		return &rowButton{"cancel", "Cancel download", icons.Close, &w.Cancel}
 	}
 	return nil
 }
@@ -151,7 +164,7 @@ func TaskRow(th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time, se
 				hovered := w.Hover.Update(gtx.Source) || w.Select.Hovered()
 				w.Hover.Add(gtx.Ops)
 				focused := gtx.Focused(&w.Select) || gtx.Focused(&w.More) || w.Menu.Open
-				for _, c := range []*widget.Clickable{&w.Pause, &w.Resume, &w.Retry, &w.Open} {
+				for _, c := range []*widget.Clickable{&w.Pause, &w.Resume, &w.Retry, &w.Open, &w.Cancel} {
 					focused = focused || gtx.Focused(c)
 				}
 				w.hot.Set(b2f(hovered))
@@ -223,6 +236,7 @@ func textColumn(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWid
 	})
 	name.Text = w.ShownName
 	col := theme.StateColor(th.Palette, v.State, v.Interrupted)
+	barCol := theme.BarColor(th.Palette, v.State, v.Interrupted)
 	frac := rowFrac(v)
 	bar := v.State != domain.StateCompleted && !(frac == 0 && max(v.Downloaded, 0) == 0)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -235,7 +249,7 @@ func textColumn(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWid
 			if !bar {
 				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Dp(3))}
 			}
-			return ProgressBar(th, &w.Progress, frac, col)(gtx)
+			return ProgressBar(th, &w.Progress, frac, barCol)(gtx)
 		}),
 	)
 }
@@ -258,14 +272,27 @@ func metaLine(gtx layout.Context, th *theme.Theme, v state.TaskView, now time.Ti
 		layout.Rigid(styled(th, theme.StyleCaption, stCol, state.StatusText(v, now)).Layout),
 	}
 	for _, s := range metaSlots(v) {
-		s := metaSep + s
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			l := styled(th, theme.StyleCaption, th.TextMuted, s)
-			gtx.Constraints.Min.X = min(measure(gtx, styled(th, theme.StyleCaption, th.TextMuted, zeroDigits(s))), gtx.Constraints.Max.X)
-			return l.Layout(gtx)
-		}))
+		children = append(children,
+			layout.Rigid(styled(th, theme.StyleCaption, th.TextMuted, metaSep).Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return numSlot(gtx, styled(th, theme.StyleCaption, th.TextMuted, s), zeroDigits(s))
+			}))
 	}
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx, children...)
+}
+
+// numSlot lays out l right-aligned in a slot as wide as l would be with the
+// text ref, so the separators around it keep their natural spacing.
+func numSlot(gtx layout.Context, l material.LabelStyle, ref string) layout.Dimensions {
+	r := l
+	r.Text = ref
+	full, got := measure(gtx, r), measure(gtx, l)
+	pad := max(0, min(full, gtx.Constraints.Max.X)-got)
+	gtx.Constraints.Min.X = 0
+	defer op.Offset(image.Pt(pad, 0)).Push(gtx.Ops).Pop()
+	d := l.Layout(gtx)
+	d.Size.X += pad
+	return d
 }
 
 func trailing(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidgets, showMore bool) layout.Dimensions {

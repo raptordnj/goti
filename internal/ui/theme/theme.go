@@ -56,6 +56,9 @@ const (
 type Palette struct {
 	Bg, Surface, SurfaceSunken, Hairline, Text, TextMuted, TextFaint,
 	Accent, AccentSoft, OnAccent, Success, Warning, Error, Focus color.NRGBA
+	// WarningFill is Warning for fills (progress bars), not text: in light
+	// themes the text Warning is darkened for contrast and reads brownish.
+	WarningFill color.NRGBA
 }
 
 func rgb(v uint32) color.NRGBA {
@@ -69,7 +72,7 @@ func Light() Palette {
 		Bg: rgb(0xF7F8FA), Surface: rgb(0xFFFFFF), SurfaceSunken: rgb(0xF1F3F6), Hairline: rgb(0xE4E7EC),
 		Text: rgb(0x111418), TextMuted: rgb(0x5E6673), TextFaint: rgb(0x8A919C),
 		Accent: accent, AccentSoft: WithAlpha(accent, 0x1A), OnAccent: rgb(0xFFFFFF),
-		Success: rgb(0x12805C), Warning: rgb(0xA15C07), Error: rgb(0xC8322B),
+		Success: rgb(0x12805C), Warning: rgb(0xA15C07), Error: rgb(0xC8322B), WarningFill: rgb(0xF0A020),
 		Focus: WithAlpha(accent, 0x8C), // 55 %
 	}
 }
@@ -81,9 +84,18 @@ func Dark() Palette {
 		Bg: rgb(0x0E0F12), Surface: rgb(0x16181D), SurfaceSunken: rgb(0x1C1F25), Hairline: rgb(0x272B33),
 		Text: rgb(0xECEEF1), TextMuted: rgb(0xA0A7B3), TextFaint: rgb(0x6F7682),
 		Accent: accent, AccentSoft: WithAlpha(accent, 0x1A), OnAccent: rgb(0x0B1020),
-		Success: rgb(0x3DD39A), Warning: rgb(0xF5B13D), Error: rgb(0xFF7A70),
+		Success: rgb(0x3DD39A), Warning: rgb(0xF5B13D), Error: rgb(0xFF7A70), WarningFill: rgb(0xF5B13D),
 		Focus: WithAlpha(accent, 0x99), // 60 %
 	}
+}
+
+// BarColor is the progress-bar fill of a state: StateColor, with
+// WarningFill in place of Warning.
+func BarColor(p Palette, s domain.State, interrupted bool) color.NRGBA {
+	if c := StateColor(p, s, interrupted); c != p.Warning || p.WarningFill.A == 0 {
+		return c
+	}
+	return p.WarningFill
 }
 
 // StateColor is the semantic colour of a download state.

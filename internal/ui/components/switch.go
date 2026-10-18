@@ -24,12 +24,20 @@ func Switch(th *theme.Theme, b *widget.Bool, labelText string) layout.Widget {
 			if gtx.Enabled() {
 				pointer.CursorPointer.Add(gtx.Ops)
 			}
-			gtx.Constraints.Min.Y = gtx.Dp(32)
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-				layout.Flexed(1, styled(th, theme.StyleBody, th.Text, labelText).Layout),
+			// Both children fill the 32-dp row and centre their content in it,
+			// so the label lines up with the toggle.
+			rowH := gtx.Dp(32)
+			return layout.Flex{}.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min.Y = rowH
+					return midLeft(gtx, styled(th, theme.StyleBody, th.Text, labelText).Layout)
+				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return FocusRing(gtx, th, b, 9, func(gtx layout.Context) layout.Dimensions {
-						return toggle(gtx, th, b)
+					gtx.Constraints.Min.Y = rowH
+					return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return FocusRing(gtx, th, b, 9, func(gtx layout.Context) layout.Dimensions {
+							return toggle(gtx, th, b)
+						})
 					})
 				}),
 			)

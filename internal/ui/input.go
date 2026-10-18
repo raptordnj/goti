@@ -66,8 +66,12 @@ func (c *controller) pollPicked() {
 	select {
 	case p := <-c.picked:
 		c.pickBusy = false
-		if p != "" && c.dialog == dialogAdd {
+		switch {
+		case p == "":
+		case c.dialog == dialogAdd:
 			c.add.SetDestDir(p)
+		case c.settingsOpen:
+			c.settings.SetDir(p)
 		}
 	default:
 	}

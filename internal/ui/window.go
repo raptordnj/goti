@@ -18,6 +18,7 @@ import (
 	"github.com/raptordnj/goti/internal/brand"
 	"github.com/raptordnj/goti/internal/platform"
 	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/ui/anim"
 	"github.com/raptordnj/goti/internal/ui/dialogs"
 	"github.com/raptordnj/goti/internal/ui/screens"
 	"github.com/raptordnj/goti/internal/ui/state"
@@ -87,6 +88,9 @@ type controller struct {
 	addPending bool
 	addBase    uint64
 	lastAddErr string
+	addKnown   map[string]bool // task IDs present when the last Add was sent
+	selectNew  bool            // select the task the last Add created once it appears
+	errSeen    time.Time       // newest error toast already seen
 
 	local     []state.Toast
 	dismissed map[toastKey]bool
@@ -176,6 +180,16 @@ func (c *controller) handle(in screens.Intent, snap *state.Snapshot, now time.Ti
 		switch cmd := in.Cmd.(type) {
 		case app.AddDownload:
 			c.addPending, c.addBase = true, snap.AddResultSeq
+			c.addKnown = make(map[string]bool, len(snap.Tasks))
+			for _, v := range snap.Tasks {
+				c.addKnown[v.ID] = true
+			}
+		case app.PauseTask:
+			c.optimistic(snap, cmd.ID, "resume")
+		case app.ResumeTask:
+			c.optimistic(snap, cmd.ID, "pause")
+		case app.RetryTask:
+			c.optimistic(snap, cmd.ID, "pause")
 		case app.SaveSettings:
 			c.saved = cmd.S.Theme
 		}
@@ -202,9 +216,6 @@ func (c *controller) handle(in screens.Intent, snap *state.Snapshot, now time.Ti
 	case screens.IntentCloseDialog:
 		c.dialog, c.addPending, c.wantClip = dialogNone, false, false
 	case screens.IntentPickFolder:
-		if c.picker == nil || c.pickBusy {
-			return
-		}
 		c.startPick()
 	case screens.IntentOpen:
 		go func() {
@@ -232,12 +243,56 @@ func (c *controller) handle(in screens.Intent, snap *state.Snapshot, now time.Ti
 	}
 }
 
+// optimistic shows icon as task id's primary action until it changes.
+func (c *controller) optimistic(snap *state.Snapshot, id, icon string) {
+	if v, ok := c.findTask(snap, id); ok {
+		c.main.SetOptimistic(v, icon)
+	}
+}
+
+// syncOptimistic drops optimistic icons of tasks that changed, and all of
+// them when a new error toast arrives (a command may have failed).
+func (c *controller) syncOptimistic(snap *state.Snapshot) {
+	for _, t := range snap.Toasts {
+		if t.Kind == state.ToastError && t.At.After(c.errSeen) {
+			c.errSeen = t.At
+			c.main.ClearOptimistic("")
+		}
+	}
+	c.main.SyncOptimistic(snap)
+}
+
+// selectNewTask selects and reveals the newest task created since the last
+// Add was sent, once it is in snap.
+func (c *controller) selectNewTask(snap *state.Snapshot) {
+	if !c.selectNew {
+		return
+	}
+	var best *state.TaskView
+	for i := range snap.Tasks {
+		v := &snap.Tasks[i]
+		if !c.addKnown[v.ID] && (best == nil || v.CreatedAt.After(best.CreatedAt)) {
+			best = v
+		}
+	}
+	if best == nil {
+		return
+	}
+	c.selectNew, c.addKnown = false, nil
+	c.main.Selected = best.ID
+	c.main.ScrollTo(best.ID)
+}
+
 // afterResults reacts to new AddDownload results while the dialog waits.
 func (c *controller) afterResults(snap *state.Snapshot) {
+	defer c.selectNewTask(snap)
 	if !c.addPending || snap.AddResultSeq <= c.addBase {
 		return
 	}
 	c.addPending = false
+	if snap.AddErr == "" {
+		c.selectNew = true
+	}
 	if c.dialog != dialogAdd {
 		return
 	}
@@ -253,6 +308,7 @@ func (c *controller) afterResults(snap *state.Snapshot) {
 func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time) {
 	c.pollPicked()
 	c.afterResults(snap)
+	c.syncOptimistic(snap)
 	view := *snap
 	view.Toasts = c.toasts(snap, now)
 
@@ -285,6 +341,11 @@ func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snap
 	}
 }
 
+// wireReduceMotion makes animations follow the saved Reduce motion setting.
+func wireReduceMotion(cur func() settings.Settings) {
+	anim.Reduce = func() bool { return cur().ReduceMotion }
+}
+
 // RunWindow opens the Goti window and runs its event loop until the
 // window is closed. Closing sends Quit unless CloseToTray is on and a tray
 // is available.
@@ -306,6 +367,7 @@ func RunWindow(d WindowDeps) error {
 	if d.Logger != nil {
 		c.log = d.Logger
 	}
+	wireReduceMotion(d.App.Settings)
 	light, dark := theme.New(theme.Light()), theme.New(theme.Dark())
 	var ops op.Ops
 	for {

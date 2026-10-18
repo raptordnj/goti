@@ -8,7 +8,9 @@ import (
 	"gioui.org/io/event"
 
 	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/domain"
 	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/ui/anim"
 	"github.com/raptordnj/goti/internal/ui/screens"
 	"github.com/raptordnj/goti/internal/ui/state"
 )
@@ -140,5 +142,87 @@ func TestAddURLEmpty(t *testing.T) {
 	c.handle(screens.IntentOpenAdd{Prefill: "https://a/b"}, &state.Snapshot{}, time.Unix(1e6, 0))
 	if c.add.URLEmpty() {
 		t.Fatal("expected non-empty: clipboard must not overwrite")
+	}
+}
+
+func TestAddSelectsNewTask(t *testing.T) {
+	c, _ := newCtl(true)
+	now := time.Unix(1e6, 0)
+	old := state.TaskView{ID: "a", CreatedAt: now.Add(-time.Hour)}
+	snap := &state.Snapshot{AddResultSeq: 1, Tasks: []state.TaskView{old}}
+	c.handle(screens.IntentOpenAdd{Prefill: "https://a/b"}, snap, now)
+	c.handle(screens.IntentCommand{Cmd: app.AddDownload{URL: "https://a/b"}}, snap, now)
+	nw := state.TaskView{ID: "b", CreatedAt: now}
+	c.afterResults(&state.Snapshot{AddResultSeq: 2, Tasks: []state.TaskView{old, nw}})
+	if c.main.Selected != "b" {
+		t.Fatalf("selected %q, want b", c.main.Selected)
+	}
+	if c.main.ScrollTarget() != "b" {
+		t.Fatalf("scroll target %q, want b", c.main.ScrollTarget())
+	}
+}
+
+func TestOptimisticIconReverts(t *testing.T) {
+	now := time.Unix(1e6, 0)
+	v := state.TaskView{ID: "a", State: domain.StateDownloading, CanPause: true}
+	snap := &state.Snapshot{Tasks: []state.TaskView{v}}
+
+	c, _ := newCtl(true)
+	c.handle(screens.IntentCommand{Cmd: app.PauseTask{ID: "a"}}, snap, now)
+	if got := c.main.Optimistic("a"); got != "resume" {
+		t.Fatalf("optimistic %q, want resume", got)
+	}
+	// The command later fails: an error toast reverts the icon.
+	failed := &state.Snapshot{Tasks: []state.TaskView{v}, Toasts: []state.Toast{{Kind: state.ToastError, Text: "x", At: now.Add(time.Second)}}}
+	c.syncOptimistic(failed)
+	if got := c.main.Optimistic("a"); got != "" {
+		t.Fatalf("after error toast %q, want reverted", got)
+	}
+
+	// A command the App refuses never shows the optimistic icon.
+	b, _ := newCtl(false)
+	b.handle(screens.IntentCommand{Cmd: app.PauseTask{ID: "a"}}, snap, now)
+	if got := b.main.Optimistic("a"); got != "" {
+		t.Fatalf("refused command left %q", got)
+	}
+
+	// A state change of the task clears it too.
+	c.handle(screens.IntentCommand{Cmd: app.PauseTask{ID: "a"}}, failed, now)
+	paused := v
+	paused.State, paused.CanPause, paused.CanResume = domain.StatePaused, false, true
+	c.syncOptimistic(&state.Snapshot{Tasks: []state.TaskView{paused}, Toasts: failed.Toasts})
+	if got := c.main.Optimistic("a"); got != "" {
+		t.Fatalf("after state change %q", got)
+	}
+}
+
+func TestReduceMotionWired(t *testing.T) {
+	prev := anim.Reduce
+	t.Cleanup(func() { anim.Reduce = prev })
+	s := settings.Default()
+	wireReduceMotion(func() settings.Settings { return s })
+	if anim.Reduce() {
+		t.Fatal("reduce on with ReduceMotion off")
+	}
+	s.ReduceMotion = true
+	if !anim.Reduce() {
+		t.Fatal("reduce not following settings")
+	}
+}
+
+func TestSettingsFolderPick(t *testing.T) {
+	c, _ := newCtl(true)
+	c.picker = fakePicker{path: "/tmp/dl"}
+	snap := &state.Snapshot{Settings: settings.Default()}
+	now := time.Unix(1e6, 0)
+	c.handle(screens.IntentOpenSettings{}, snap, now)
+	c.handle(screens.IntentPickFolder{}, snap, now)
+	deadline := time.Now().Add(2 * time.Second)
+	for c.settings.Dir() != "/tmp/dl" {
+		if time.Now().After(deadline) {
+			t.Fatalf("settings dir %q", c.settings.Dir())
+		}
+		time.Sleep(5 * time.Millisecond)
+		c.pollPicked()
 	}
 }

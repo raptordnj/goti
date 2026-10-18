@@ -257,3 +257,28 @@ func TestEasedSweepsStale(t *testing.T) {
 		t.Fatalf("motion entries %d -> %d, stale not swept", before, after)
 	}
 }
+
+func TestRowCancelOnlyPrimary(t *testing.T) {
+	v := state.TaskView{ID: "r", FileName: "x.zip", State: domain.StateRetrying, Percent: 29, CanCancel: true}
+	var w RowWidgets
+	TaskRow(theme.New(theme.Light()), v, &w, time.Unix(1000, 0), false)(newGtx())
+	if !slices.Contains(w.Shown, "cancel") {
+		t.Fatalf("shown %v, want cancel primary", w.Shown)
+	}
+}
+
+func TestRowOptimisticIcon(t *testing.T) {
+	v := fixtures()[0] // downloading, CanPause
+	w := RowWidgets{Optimistic: "resume"}
+	TaskRow(theme.New(theme.Light()), v, &w, time.Unix(1000, 0), false)(newGtx())
+	if !slices.Contains(w.Shown, "resume") || slices.Contains(w.Shown, "pause") {
+		t.Fatalf("shown %v", w.Shown)
+	}
+}
+
+func TestInterruptedBarColor(t *testing.T) {
+	p := theme.Light()
+	if got := theme.BarColor(p, domain.StatePaused, true); got == p.Warning {
+		t.Fatalf("light interrupted bar uses the text Warning %v", got)
+	}
+}
