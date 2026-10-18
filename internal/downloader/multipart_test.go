@@ -89,10 +89,16 @@ func TestMultipartCorrect(t *testing.T) {
 		}
 	}
 	rs := parsedRanges(t, logs)
-	for i := 1; i < len(rs); i++ {
-		if rs[i].Start < rs[i-1].End {
-			t.Fatalf("overlapping ranges %v and %v", rs[i-1], rs[i])
+	end := int64(0) // furthest End among ranges so far
+	for i, r := range rs {
+		// A work-stealing split re-requests the suffix of a range whose request
+		// is already in flight (the owner stops at the new boundary); that
+		// suffix ends where its parent ends. Anything else must not overlap.
+		stolenTail := i > 0 && r.End == rs[i-1].End && r.Start > rs[i-1].Start
+		if r.Start < end && !stolenTail {
+			t.Fatalf("overlapping ranges %v and %v", rs[i-1], r)
 		}
+		end = max(end, r.End)
 	}
 	if got := f.bytes.Load(); got != size {
 		t.Fatalf("onBytes %d, want %d", got, size)
