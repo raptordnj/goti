@@ -1,0 +1,177 @@
+package screens
+
+import (
+	"slices"
+	"time"
+
+	"gioui.org/f32"
+	"gioui.org/io/pointer"
+	"github.com/raptordnj/goti/internal/settings"
+	"testing"
+
+	"gioui.org/layout"
+
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/ui/state"
+)
+
+func TestEmptyStateCentered(t *testing.T) {
+	for _, sz := range [][2]int{{800, 600}, {1100, 720}, {720, 560}} {
+		var m Main
+		hs := newHarness(sz[0], sz[1])
+		hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, &state.Snapshot{}, now) })
+		b := m.EmptyBounds
+		if b.Empty() {
+			t.Fatalf("%v: empty state not laid out", sz)
+		}
+		cx, cy := (b.Min.X+b.Max.X)/2, (b.Min.Y+b.Max.Y)/2
+		if abs(cx-sz[0]/2) > 2 || abs(cy-sz[1]/2) > 2 {
+			t.Errorf("%v: centre (%d,%d) want (%d,%d)", sz, cx, cy, sz[0]/2, sz[1]/2)
+		}
+	}
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+func TestEmptyStateCopy(t *testing.T) {
+	recordTexts(t)
+	var m Main
+	hs := newHarness(800, 600)
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, &state.Snapshot{}, now) })
+	for _, s := range []string{"No downloads yet", "Paste a link with Ctrl+V or click Add", "Add download"} {
+		if !hasText(t, s) {
+			t.Errorf("missing %q in %v", s, RecordedTexts())
+		}
+	}
+}
+
+func TestHeaderIdleHidesPill(t *testing.T) {
+	recordTexts(t)
+	var m Main
+	hs := newHarness(800, 600)
+	idle := snapOf(task("a", domain.StateQueued, state.SectionQueued))
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, idle, now) })
+	if m.PillShown {
+		t.Error("pill shown while idle")
+	}
+	if !hasText(t, "Goti") || !hasText(t, "Add") {
+		t.Errorf("header texts %v", RecordedTexts())
+	}
+	busy := snapOf(task("a", domain.StateDownloading, state.SectionActive))
+	busy.ActiveCount, busy.TotalSpeedBps = 1, 8_400_000
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, busy, now) })
+	if !m.PillShown {
+		t.Error("pill hidden while active")
+	}
+	if m.HeaderHeight != 52 {
+		t.Errorf("header height %d want 52", m.HeaderHeight)
+	}
+}
+
+func TestOfflineBanner(t *testing.T) {
+	if OfflineText != "You're offline — downloads resume automatically" {
+		t.Fatalf("offline copy %q", OfflineText)
+	}
+	recordTexts(t)
+	var m Main
+	hs := newHarness(800, 600)
+	s := snapOf(task("a", domain.StateRetrying, state.SectionActive))
+	s.Offline = true
+	hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, s, now) })
+	if !hasText(t, OfflineText) {
+		t.Errorf("no offline banner: %v", RecordedTexts())
+	}
+}
+
+func TestDetailsGroups(t *testing.T) {
+	recordTexts(t)
+	v := task("a", domain.StateFailed, state.SectionFailed)
+	v.VerifyResult = "SHA-256 ok"
+	v.Retries = []state.AttemptView{{Attempt: 1, Kind: "timeout", Message: "slow"}}
+	d := Details{ID: "a"}
+	hs := newHarness(340, 1400)
+	hs.frame(func(gtx layout.Context) { d.Layout(gtx, th, snapOf(v), now) })
+	for _, s := range []string{"Transfer", "Source", "Integrity", "History", "Size", "URL", "Destination", "SHA-256 ok"} {
+		if !hasText(t, s) {
+			t.Errorf("missing %q in %v", s, RecordedTexts())
+		}
+	}
+}
+
+func TestHeaderControlsRightAligned(t *testing.T) {
+	busy := snapOf(task("a", domain.StateDownloading, state.SectionActive))
+	busy.ActiveCount, busy.TotalSpeedBps = 1, 8_400_000
+	for name, s := range map[string]*state.Snapshot{"idle": {}, "pill": busy} {
+		var m Main
+		hs := newHarness(1100, 720)
+		hs.frame(func(gtx layout.Context) { m.Layout(gtx, th, s, now) })
+		if m.AddBounds.Empty() || abs(1100-m.AddBounds.Max.X) > 16 {
+			t.Errorf("%s: Add bounds %v, want right edge within 16 of 1100", name, m.AddBounds)
+		}
+	}
+}
+
+func TestDetailsNameCappedTwoLines(t *testing.T) {
+	v := task("a", domain.StateDownloading, state.SectionActive)
+	v.FileName = "an-extremely-long-file-name-for-the-quarterly-report-final-v2-revised-reviewed-approved-FINAL-again-and-again.tar.gz"
+	short := task("b", domain.StateDownloading, state.SectionActive)
+	d := Details{ID: "a"}
+	hs := newHarness(340, 800)
+	var hLong, hShort int
+	hs.frame(func(gtx layout.Context) { gtx.Constraints.Min.Y = 0; hLong = d.header(th, v, now)(gtx).Size.Y })
+	hs.frame(func(gtx layout.Context) { gtx.Constraints.Min.Y = 0; hShort = d.header(th, short, now)(gtx).Size.Y })
+	// Two Title lines at most: one extra line (~15-20 px) over a single-line name.
+	if hLong-hShort > 24 || hLong <= hShort {
+		t.Errorf("long name header %d vs short %d: want exactly one extra line", hLong, hShort)
+	}
+}
+
+func TestDoubleClickCompletedOpens(t *testing.T) {
+	done := task("a", domain.StateCompleted, state.SectionCompleted)
+	done.CanOpen = true
+	run := func(v state.TaskView, clicks int) []Intent {
+		var m Main
+		hs := newHarness(800, 600)
+		s := snapOf(v)
+		var got []Intent
+		lay := func(gtx layout.Context) { got = append(got, m.Layout(gtx, th, s, now)...) }
+		hs.frame(lay)
+		y, ok := m.rowY(s, v.ID)
+		if !ok {
+			t.Fatal("row not visible")
+		}
+		pos := f32.Pt(200, float32(y+20))
+		for i := range clicks {
+			at := time.Duration(i) * 50 * time.Millisecond
+			hs.r.Queue(
+				pointer.Event{Kind: pointer.Press, Source: pointer.Mouse, Buttons: pointer.ButtonPrimary, Position: pos, Time: at},
+				pointer.Event{Kind: pointer.Release, Source: pointer.Mouse, Position: pos, Time: at + 10*time.Millisecond},
+			)
+		}
+		hs.frame(lay)
+		return got
+	}
+	got := run(done, 2)
+	if !slices.Contains(got, Intent(IntentOpen{Path: done.DestPath})) {
+		t.Fatalf("double-click completed: %#v", got)
+	}
+	act := task("b", domain.StateDownloading, state.SectionActive)
+	got = run(act, 2)
+	if !slices.Contains(got, Intent(IntentSelect{ID: "b"})) || slices.ContainsFunc(got, func(i Intent) bool { _, ok := i.(IntentOpen); return ok }) {
+		t.Fatalf("double-click active: %#v", got)
+	}
+}
+
+func TestSettingsLimitOverflow(t *testing.T) {
+	var st Settings
+	st.Open(settings.Default())
+	st.globalLimit.SetText("9223372036854775")
+	if _, errs := st.collect(); errs["GlobalRateLimit"] != "Too large" {
+		t.Fatalf("errs %v", errs)
+	}
+}

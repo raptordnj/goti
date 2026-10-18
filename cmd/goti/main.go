@@ -1,0 +1,252 @@
+// Command goti is the Goti desktop GUI (spec §11).
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"sync"
+	"sync/atomic"
+	"syscall"
+
+	gioapp "gioui.org/app"
+	"gioui.org/io/system"
+
+	"github.com/raptordnj/goti/internal/app"
+	"github.com/raptordnj/goti/internal/config"
+	"github.com/raptordnj/goti/internal/domain"
+	"github.com/raptordnj/goti/internal/downloader"
+	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/persistence"
+	"github.com/raptordnj/goti/internal/platform"
+	"github.com/raptordnj/goti/internal/ratelimit"
+	"github.com/raptordnj/goti/internal/services"
+	"github.com/raptordnj/goti/internal/settings"
+	"github.com/raptordnj/goti/internal/storage"
+	"github.com/raptordnj/goti/internal/tray"
+	"github.com/raptordnj/goti/internal/ui"
+	"github.com/raptordnj/goti/internal/ui/state"
+)
+
+// runtime is the wired application minus window and tray.
+type runtime struct {
+	app    *app.App
+	store  *state.Store
+	db     *persistence.DB
+	lock   *storage.FileLock
+	queue  *services.Queue
+	engine *downloader.Engine
+	bus    *events.Bus
+	log    *slog.Logger
+
+	dataDir string
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	// invalidate is the current window's Invalidate (nil = no window).
+	invalidate atomic.Pointer[func()]
+	// trayOK is set once the system tray is up.
+	trayOK atomic.Bool
+
+	winMu sync.Mutex
+	win   *gioapp.Window // the open window, nil when closed to tray
+}
+
+// build wires DB, settings, bus, engine, queue, app and state for dataDir,
+// holding the single-instance lock.
+func build(dataDir string) (*runtime, error) {
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	cfg := config.Default()
+	if dataDir != "" {
+		cfg.DataDir = dataDir
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		return nil, fmt.Errorf("cannot create data directory: %w", err)
+	}
+	lock, err := platform.InstanceLock(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	db, err := persistence.Open(config.DBPath(cfg.DataDir))
+	if err != nil {
+		_ = lock.Unlock()
+		return nil, fmt.Errorf("cannot open database: %w", err)
+	}
+	repo := settings.NewRepo(db, log)
+	s := repo.Load(context.Background())
+	clock := domain.RealClock{}
+	bus := events.NewBus(cfg.ProgressHz, clock)
+	bw := ratelimit.NewBandwidth(s.GlobalRateLimit)
+	eng := downloader.NewEngine(downloader.EngineDeps{
+		Store: db, Config: s.Apply(cfg), Bus: bus, Clock: clock, Logger: log,
+		Global: bw, Conns: ratelimit.NewSemaphore(cfg.GlobalMaxConnections),
+	})
+	q := services.NewQueue(services.QueueDeps{Engine: eng, Store: db, KV: db, Bus: bus, Clock: clock, Logger: log,
+		MaxSimultaneous: s.MaxSimultaneous, ResumeOnStartup: s.ResumeOnStartup})
+	a := app.New(app.Deps{Engine: eng, Queue: q, Settings: repo, Bandwidth: bw, Bus: bus, Logger: log, BaseConfig: cfg})
+	ctx, cancel := context.WithCancel(context.Background())
+	return &runtime{app: a, store: &state.Store{}, db: db, lock: lock, queue: q, engine: eng, bus: bus, log: log,
+		ctx: ctx, cancel: cancel, dataDir: cfg.DataDir}, nil
+}
+
+func (r *runtime) invalidateWindow() {
+	if f := r.invalidate.Load(); f != nil {
+		(*f)()
+	}
+}
+
+// run starts the queue and state goroutine, then processes commands until
+// Quit; it releases everything before returning.
+func (r *runtime) run() error {
+	r.queue.Start(r.ctx)
+	stateDone := make(chan struct{})
+	go func() {
+		defer close(stateDone)
+		state.Run(r.ctx, state.Deps{Bus: r.bus, Store: r.db, Running: r.engine.Running,
+			QueuePaused: r.queue.Paused, Settings: r.app.Settings, Invalidate: r.invalidateWindow,
+			TrayAvailable: r.trayOK.Load, MarkTrayNotice: r.markTrayNotice}, r.store)
+	}()
+	err := r.app.Run(r.ctx)
+	if errors.Is(err, context.Canceled) {
+		err = nil
+	}
+	r.cancel()
+	<-stateDone
+	return errors.Join(err, r.close())
+}
+
+// markTrayNotice persists TrayNoticeShown so the tray notice shows once.
+func (r *runtime) markTrayNotice() {
+	r.app.Send(app.MarkTrayNoticeShown{})
+}
+
+// showWindow opens the main window, or raises it when one is already open;
+// at most one window exists at a time.
+func (r *runtime) showWindow() {
+	r.winMu.Lock()
+	defer r.winMu.Unlock()
+	if r.win != nil {
+		r.win.Perform(system.ActionRaise)
+		return
+	}
+	w := new(gioapp.Window)
+	r.win = w
+	inv := w.Invalidate
+	r.invalidate.Store(&inv)
+	go func() {
+		err := ui.RunWindow(ui.WindowDeps{App: r.app, Store: r.store, Window: w, TrayAvailable: r.trayOK.Load,
+			Logger: r.log, Version: version, DataDir: r.dataDir, OnClosed: func() {
+				r.winMu.Lock()
+				if r.win == w {
+					r.win = nil
+					r.invalidate.Store(nil)
+				}
+				r.winMu.Unlock()
+			}})
+		if err != nil {
+			r.log.Error("window", "err", err)
+		}
+	}()
+}
+
+// close releases the DB and the instance lock.
+func (r *runtime) close() error {
+	r.cancel()
+	return errors.Join(r.db.Close(), r.lock.Unlock())
+}
+
+// version is the build version, shown in Settings > About; release builds
+// set it with -ldflags "-X main.version=...".
+var version = "dev"
+
+// appID is the reverse-DNS application ID; Gio sets it as the Wayland app_id
+// so the desktop entry (io.github.raptordnj.Goti) matches the window.
+const appID = "io.github.raptordnj.Goti"
+
+// dataDirFor resolves the data directory: --data-dir, then GOTI_DATA_DIR,
+// the deprecated legacy env var, and the default (migrating the legacy
+// data dir). It runs before the DB is opened or any lock is taken.
+func dataDirFor(flagDir string, env map[string]string, log *slog.Logger) string {
+	if flagDir != "" {
+		return flagDir
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	return config.ResolveDataDir(env, log)
+}
+
+// startupMessage is the text shown when the app cannot start.
+func startupMessage(err error) string {
+	if errors.Is(err, platform.ErrAlreadyRunning) {
+		return platform.ErrAlreadyRunning.Error()
+	}
+	return "goti: " + err.Error()
+}
+
+// forwardSignals sends Quit for each signal until sigs is closed.
+func forwardSignals(sigs <-chan os.Signal, send func(app.Command) bool, log *slog.Logger) {
+	for range sigs {
+		ui.SendQuit(send, log)
+	}
+}
+
+func main() {
+	flagDir := flag.String("data-dir", "", "data directory (env "+config.EnvDataDir+")")
+	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println("goti", version)
+		return
+	}
+	gioapp.ID = appID
+	env := map[string]string{}
+	for _, k := range []string{config.EnvDataDir, config.LegacyEnvDataDir} {
+		env[k] = os.Getenv(k)
+	}
+	dataDir := dataDirFor(*flagDir, env, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	rt, err := build(dataDir)
+	if err != nil {
+		msg := startupMessage(err)
+		fmt.Fprintln(os.Stderr, msg)
+		// GUI builds have no console on Windows/macOS: show it in a window too.
+		ui.ShowFatal(msg) // exits 1 once closed
+	}
+
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	go forwardSignals(sigs, rt.app.Send, rt.log)
+
+	trayStop := make(chan func(), 1)
+	go func() {
+		code := 0
+		if err := rt.run(); err != nil {
+			rt.log.Error("shutdown", "err", err)
+			code = 1
+		}
+		select {
+		case stop := <-trayStop:
+			stop()
+		default:
+		}
+		os.Exit(code)
+	}()
+
+	// The tray comes up in the background (≤ 2 s) so the window is not
+	// delayed; until it is ready, closing the window quits.
+	go func() {
+		ok, stop := tray.Start(tray.Deps{Send: rt.app.Send, Snapshot: rt.store.Load, Show: rt.showWindow})
+		rt.log.Info("tray", "available", ok)
+		rt.trayOK.Store(ok)
+		trayStop <- stop
+	}()
+	rt.showWindow()
+	gioapp.Main()
+}

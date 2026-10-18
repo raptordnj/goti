@@ -1,0 +1,161 @@
+name: release
+
+# Runs only when a version tag is pushed: git tag vX.Y.Z && git push origin vX.Y.Z
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  # The tag name; jobs strip the leading "v".
+  VERSION: ${{ github.ref_name }}
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles2-mesa-dev libegl1-mesa-dev libffi-dev libxcursor-dev libvulkan-dev libxfixes-dev
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "gofmt needed:"; echo "$out"; exit 1; fi
+      - run: go vet ./...
+      - run: go test -race -short ./...
+
+  linux:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: amd64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libwayland-dev libx11-dev libx11-xcb-dev libxkbcommon-x11-dev libgles2-mesa-dev libegl1-mesa-dev libffi-dev libxcursor-dev libvulkan-dev libxfixes-dev
+      - name: Package
+        run: scripts/package-linux.sh "${VERSION#v}" ${{ matrix.arch }}
+      - name: Extract tarball
+        run: mkdir -p /tmp/goti && tar -xzf dist/*.tar.gz -C /tmp/goti --strip-components=1
+      - name: glibc floor (<= 2.35)
+        run: |
+          max=$(objdump -T /tmp/goti/goti | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)
+          echo "highest GLIBC symbol version: $max"
+          [ "$(printf '%s\n2.35\n' "$max" | sort -V | tail -1)" = "2.35" ] || { echo "glibc $max > 2.35"; exit 1; }
+      - name: --version
+        run: |
+          out=$(/tmp/goti/goti-cli --version)
+          echo "$out"
+          [ "$out" = "goti-cli ${VERSION#v}" ]
+      - uses: actions/upload-artifact@v7
+        with:
+          name: goti-linux-${{ matrix.arch }}
+          path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.pkg.tar.zst
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Ensure makensis on PATH
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
+            if (-not (Test-Path (Join-Path $nsis 'makensis.exe'))) { choco install nsis -y --no-progress }
+            Add-Content $env:GITHUB_PATH $nsis
+          }
+      - name: Package
+        shell: pwsh
+        run: |
+          makensis /VERSION
+          pwsh scripts/package-windows.ps1 -Version ($env:VERSION -replace '^v', '')
+      - uses: actions/upload-artifact@v7
+        with:
+          name: goti-windows-amd64
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+
+  macos:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel  # macos-13 is retired
+            arch: amd64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Package
+        run: scripts/package-macos.sh "${VERSION#v}" ${{ matrix.arch }}
+      - name: Verify signature in dmg
+        run: |
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" dist/*.dmg
+          codesign --verify --deep --strict --verbose=2 "$mnt/Goti.app"
+          hdiutil detach "$mnt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: goti-macos-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+      - name: SHA256SUMS
+        working-directory: out
+        run: sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: out/*

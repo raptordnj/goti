@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.raptordnj.Goti</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Goti</name>
+  <summary>Fast by design. Reliable by nature.</summary>
+  <description>
+    <p>Goti (গতি, "speed") is a fast, reliable download manager. It splits downloads into parallel connections, resumes interrupted transfers and verifies what it saves.</p>
+  </description>
+  <launchable type="desktop-id">goti.desktop</launchable>
+  <url type="homepage">https://github.com/raptordnj/goti</url>
+  <provides>
+    <binary>goti</binary>
+    <binary>goti-cli</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

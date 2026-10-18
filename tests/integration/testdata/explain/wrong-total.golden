@@ -1,0 +1,52 @@
+{
+  "strategy": "single",
+  "resume": false,
+  "remote_changed": false,
+  "confidence": "low",
+  "size": 16777216,
+  "size_known": true,
+  "ranges_proven": false,
+  "validator": "strong-etag",
+  "initial_conns": 1,
+  "max_conns": 1,
+  "chunk_size": 0,
+  "probes": [
+    {
+      "Requested": {
+        "Start": 0,
+        "End": 1
+      },
+      "Status": 206,
+      "ContentRange": "bytes 0-0/16777216",
+      "BodyLen": 1,
+      "Validators": {
+        "ETag": "\"v1\"",
+        "ETagStrong": true,
+        "LastModified": ""
+      },
+      "RTT": 0,
+      "Err": ""
+    },
+    {
+      "Requested": {
+        "Start": 8388608,
+        "End": 8388610
+      },
+      "Status": 206,
+      "ContentRange": "bytes 8388608-8388609/16777217",
+      "BodyLen": 2,
+      "Validators": {
+        "ETag": "\"v1\"",
+        "ETagStrong": true,
+        "LastModified": ""
+      },
+      "RTT": 0,
+      "Err": ""
+    }
+  ],
+  "reasons": [
+    "single stream: byte ranges not proven",
+    "an interrupted download restarts from zero"
+  ],
+  "change_triggers": null
+}

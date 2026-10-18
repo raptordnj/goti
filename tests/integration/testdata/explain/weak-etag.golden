@@ -1,0 +1,51 @@
+{
+  "strategy": "single",
+  "resume": false,
+  "remote_changed": false,
+  "confidence": "low",
+  "size": 16777216,
+  "size_known": true,
+  "ranges_proven": true,
+  "validator": "none",
+  "initial_conns": 1,
+  "max_conns": 1,
+  "chunk_size": 0,
+  "probes": [
+    {
+      "Requested": {
+        "Start": 0,
+        "End": 1
+      },
+      "Status": 206,
+      "ContentRange": "bytes 0-0/16777216",
+      "BodyLen": 1,
+      "Validators": {
+        "ETag": "W/\"v1\"",
+        "ETagStrong": false,
+        "LastModified": ""
+      },
+      "RTT": 0,
+      "Err": ""
+    },
+    {
+      "Requested": {
+        "Start": 8388608,
+        "End": 8388610
+      },
+      "Status": 206,
+      "ContentRange": "bytes 8388608-8388609/16777216",
+      "BodyLen": 2,
+      "Validators": {
+        "ETag": "W/\"v1\"",
+        "ETagStrong": false,
+        "LastModified": ""
+      },
+      "RTT": 0,
+      "Err": ""
+    }
+  ],
+  "reasons": [
+    "single stream: no usable validator (strong ETag or Last-Modified)"
+  ],
+  "change_triggers": null
+}

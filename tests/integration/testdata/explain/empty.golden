@@ -1,0 +1,37 @@
+{
+  "strategy": "single",
+  "resume": false,
+  "remote_changed": false,
+  "confidence": "low",
+  "size": 0,
+  "size_known": true,
+  "ranges_proven": false,
+  "validator": "strong-etag",
+  "initial_conns": 1,
+  "max_conns": 1,
+  "chunk_size": 0,
+  "probes": [
+    {
+      "Requested": {
+        "Start": 0,
+        "End": 1
+      },
+      "Status": 416,
+      "ContentRange": "bytes */0",
+      "BodyLen": -1,
+      "Validators": {
+        "ETag": "\"v1\"",
+        "ETagStrong": true,
+        "LastModified": ""
+      },
+      "RTT": 0,
+      "Err": ""
+    }
+  ],
+  "reasons": [
+    "single stream: byte ranges not proven",
+    "single stream: size 0 below multipart threshold 8388608",
+    "an interrupted download restarts from zero"
+  ],
+  "change_triggers": null
+}

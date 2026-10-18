@@ -1,0 +1,76 @@
+# nfpm config for the Linux packages (deb, rpm, archlinux).
+# Env: VERSION, ARCH (amd64|arm64), (binaries staged in dist/stage).
+name: goti
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: net
+priority: optional
+maintainer: Tohidul Islam Touhid <envaysoft@gmail.com>
+description: |
+  Goti (গতি) - Fast by design. Reliable by nature.
+  A fast, reliable download manager with a desktop GUI (goti) and a
+  command-line client (goti-cli).
+vendor: Goti
+homepage: https://github.com/raptordnj/goti
+license: MIT
+contents:
+  - src: LICENSE
+    dst: /usr/share/licenses/goti/LICENSE
+  - src: dist/stage/goti
+    dst: /usr/bin/goti
+    file_info: {mode: 0755}
+  - src: dist/stage/goti-cli
+    dst: /usr/bin/goti-cli
+    file_info: {mode: 0755}
+  - src: dist/stage/goti.desktop
+    dst: /usr/share/applications/goti.desktop
+  - src: dist/stage/io.github.raptordnj.Goti.metainfo.xml
+    dst: /usr/share/metainfo/io.github.raptordnj.Goti.metainfo.xml
+  - src: packaging/icons/goti-16.png
+    dst: /usr/share/icons/hicolor/16x16/apps/goti.png
+  - src: packaging/icons/goti-32.png
+    dst: /usr/share/icons/hicolor/32x32/apps/goti.png
+  - src: packaging/icons/goti-48.png
+    dst: /usr/share/icons/hicolor/48x48/apps/goti.png
+  - src: packaging/icons/goti-64.png
+    dst: /usr/share/icons/hicolor/64x64/apps/goti.png
+  - src: packaging/icons/goti-128.png
+    dst: /usr/share/icons/hicolor/128x128/apps/goti.png
+  - src: packaging/icons/goti-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/goti.png
+  - src: packaging/icons/goti-512.png
+    dst: /usr/share/icons/hicolor/512x512/apps/goti.png
+scripts:
+  postinstall: packaging/linux/postinstall.sh
+overrides:
+  deb:
+    depends:
+      - libwayland-client0
+      - libwayland-egl1
+      - libwayland-cursor0
+      - libxkbcommon0
+      - libxkbcommon-x11-0
+      - libx11-xcb1
+      - libxcursor1
+      - libxfixes3
+      - libegl1
+      - libvulkan1
+  rpm:
+    depends:
+      - wayland
+      - libxkbcommon
+      - libxkbcommon-x11
+      - libXcursor
+      - libXfixes
+      - mesa-libEGL
+      - vulkan-loader
+  archlinux:
+    depends:
+      - wayland
+      - libxkbcommon
+      - libxkbcommon-x11
+      - libxcursor
+      - libxfixes
+      - libglvnd
+      - vulkan-icd-loader
