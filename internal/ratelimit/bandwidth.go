@@ -61,3 +61,11 @@ func WaitAll(ctx context.Context, n int, ls ...*Bandwidth) error {
 	}
 	return nil
 }
+
+// Limit returns the current rate in bytes per second (0 = unlimited).
+func (b *Bandwidth) Limit() int64 {
+	if b == nil || b.l.Limit() == rate.Inf {
+		return 0
+	}
+	return int64(b.l.Limit())
+}
