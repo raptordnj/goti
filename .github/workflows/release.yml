@@ -3,7 +3,6 @@ name: release
 on:
   push:
     tags: ['v*']
-    branches: [feat/gui] # TEMPORARY: CI verification only, removed before merge
   workflow_dispatch:
     inputs:
       version:
@@ -15,7 +14,7 @@ permissions:
 
 env:
   # Tag push: strip the leading "v"; dispatch: the input.
-  VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version || format('0.0.0-ci-{0}', github.run_number) }}
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version }}
 
 jobs:
   linux:
