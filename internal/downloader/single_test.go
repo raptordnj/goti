@@ -267,6 +267,9 @@ func TestSingleCancelNotRetried(t *testing.T) {
 }
 
 func TestCopySegmentZeroAllocs(t *testing.T) {
+	if raceEnabled {
+		t.Skip("allocation counts are unreliable under -race (sync.Pool drops items)")
+	}
 	tf, err := storage.CreateTemp(t.TempDir(), "z.bin", 2<<20, true)
 	if err != nil {
 		t.Fatal(err)
