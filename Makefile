@@ -1,4 +1,4 @@
-.PHONY: test race lint fuzz bench build cross gui
+.PHONY: test race lint fuzz bench build cross gui screenshots
 
 test:
 	go test -timeout 30m ./...
@@ -34,3 +34,6 @@ cross:
 
 gui:
 	go build -o bin/swiftfetch ./cmd/swiftfetch
+
+screenshots:
+	go test -tags snapshot ./internal/ui/snapshot -run TestScreenshots -args -update

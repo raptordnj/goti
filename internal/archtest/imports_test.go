@@ -59,7 +59,8 @@ func TestImportRules(t *testing.T) {
 		return r == "internal/ui" || r == "cmd/swiftfetch" ||
 			under(r, "internal/ui/theme") || under(r, "internal/ui/components") ||
 			under(r, "internal/ui/screens") || under(r, "internal/ui/dialogs") ||
-			under(r, "internal/ui/icons") || under(r, "internal/ui/anim")
+			under(r, "internal/ui/icons") || under(r, "internal/ui/anim") ||
+			under(r, "internal/ui/snapshot")
 	}
 	noToolkit := []string{"internal/ui/state", "internal/app", "internal/services", "internal/settings"}
 	engine := []string{"domain", "downloader", "strategy", "transport", "storage", "persistence", "ratelimit", "events", "config"}
