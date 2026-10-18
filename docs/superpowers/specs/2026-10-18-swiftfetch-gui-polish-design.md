@@ -40,7 +40,7 @@ of mixed weight.
   Display 18 sp/SemiBold (dialog titles). Line height 1.35.
 - **Radii:** 6 (controls), 8 (rows, inputs), 12 (dialogs, panels), full (pills, progress).
 - **Elevation:** two levels drawn as 2–3 stacked translucent rrects (shadow) — `Raised` (menus, toasts),
-  `Overlay` (dialogs). Scrim 45 % black (dark) / 30 % (light).
+  `Overlay` (dialogs). Scrim 60 % black (dark) / 30 % (light).
 - **Palette (light):** Bg #F7F8FA, Surface #FFFFFF, SurfaceSunken #F1F3F6, Hairline #E4E7EC,
   Text #111418, TextMuted #5E6673, TextFaint #8A919C (≥ 3:1, non-essential only), Accent #3461F5,
   AccentSoft = Accent @ 10 %, OnAccent #FFFFFF, Success #12805C, Warning #A15C07, Error #C8322B,

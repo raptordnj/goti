@@ -131,3 +131,9 @@ func midLeft(gtx layout.Context, w layout.Widget) layout.Dimensions {
 		return w(gtx)
 	})
 }
+
+// RoundedFill paints an sz rounded rect of radius r and returns sz.
+func RoundedFill(gtx layout.Context, c color.NRGBA, sz image.Point, r unit.Dp) layout.Dimensions {
+	fillRRect(gtx, c, sz, r)
+	return layout.Dimensions{Size: sz}
+}

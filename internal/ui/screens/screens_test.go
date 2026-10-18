@@ -136,7 +136,7 @@ func TestSettingsValidation(t *testing.T) {
 	recordTexts(t)
 	var st Settings
 	st.Open(settings.Default())
-	st.maxSim.SetText("0")
+	st.globalLimit.SetText("-5")
 	hs := newHarness(800, 900)
 	s := &state.Snapshot{}
 	lay := func(gtx layout.Context) { st.Layout(gtx, th, s, now) }
@@ -147,15 +147,16 @@ func TestSettingsValidation(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("expected no intents, got %#v", got)
 	}
-	if st.errs["MaxSimultaneous"] == "" {
+	if st.errs["GlobalRateLimit"] == "" {
 		t.Fatalf("no field error: %v", st.errs)
 	}
 	hs.frame(lay)
-	if !hasText(t, st.errs["MaxSimultaneous"]) {
+	if !hasText(t, st.errs["GlobalRateLimit"]) {
 		t.Errorf("error text not rendered")
 	}
 
-	st.maxSim.SetText("4")
+	st.globalLimit.SetText("0")
+	st.maxSim.Value = 4
 	hs.click(&st.save, lay)
 	hs.frame(func(gtx layout.Context) { got = st.Layout(gtx, th, s, now) })
 	want := settings.Default()
@@ -287,5 +288,63 @@ func TestRowMenuCancelGated(t *testing.T) {
 		if _, ok := in.(IntentConfirm); ok {
 			t.Fatalf("cancel emitted although CanCancel is false: %#v", got)
 		}
+	}
+}
+
+func TestSettingsSteppersClamp(t *testing.T) {
+	var st Settings
+	st.Open(settings.Default())
+	st.maxSim.Value, st.maxConn.Value = 50, 0
+	hs := newHarness(800, 900)
+	s := &state.Snapshot{}
+	lay := func(gtx layout.Context) { st.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	if st.maxSim.Value != 10 || st.maxConn.Value != 1 {
+		t.Fatalf("not clamped: sim=%d conn=%d", st.maxSim.Value, st.maxConn.Value)
+	}
+	st.maxConn.Value = 16
+	hs.click(&st.maxConn.Inc, lay)
+	hs.frame(lay)
+	if st.maxConn.Value != 16 {
+		t.Fatalf("conn=%d, want 16", st.maxConn.Value)
+	}
+	hs.click(&st.maxSim.Dec, lay)
+	hs.frame(lay)
+	if st.maxSim.Value != 9 {
+		t.Fatalf("sim=%d, want 9", st.maxSim.Value)
+	}
+}
+
+func TestSettingsReduceMotionSaved(t *testing.T) {
+	var st Settings
+	st.Open(settings.Default())
+	hs := newHarness(800, 900)
+	s := &state.Snapshot{}
+	lay := func(gtx layout.Context) { st.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	hs.click(&st.reduceMotion, lay)
+	hs.frame(lay)
+	hs.click(&st.save, lay)
+	var got []Intent
+	hs.frame(func(gtx layout.Context) { got = st.Layout(gtx, th, s, now) })
+	want := settings.Default()
+	want.ReduceMotion = true
+	if !slices.Contains(got, Intent(IntentCommand{Cmd: app.SaveSettings{S: want}})) {
+		t.Fatalf("intents %#v", got)
+	}
+}
+
+func TestSettingsLimitsKB(t *testing.T) {
+	var st Settings
+	d := settings.Default()
+	d.GlobalRateLimit = 2048
+	st.Open(d)
+	if st.globalLimit.Text() != "2" {
+		t.Fatalf("shown %q, want 2 (KB/s)", st.globalLimit.Text())
+	}
+	st.perLimit.SetText("5")
+	got, errs := st.collect()
+	if len(errs) != 0 || got.PerDownloadLimit != 5*1024 || got.GlobalRateLimit != 2048 {
+		t.Fatalf("got %+v errs %v", got, errs)
 	}
 }

@@ -8,12 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/widget"
 
 	"github.com/raptordnj/goti/internal/app"
-	"github.com/raptordnj/goti/internal/ui/anim"
 	"github.com/raptordnj/goti/internal/ui/components"
+	"github.com/raptordnj/goti/internal/ui/icons"
 	"github.com/raptordnj/goti/internal/ui/screens"
 	"github.com/raptordnj/goti/internal/ui/state"
 	"github.com/raptordnj/goti/internal/ui/theme"
@@ -37,8 +38,13 @@ type Add struct {
 	destDir             string
 	urlErr, submitErr   string
 	add, cancel, change widget.Clickable
-	fade                anim.Fade
+	shell               components.DialogState
+	pasted              string // prefill, for the paste-detected hint
+	focusPending        bool
 }
+
+// PastedHint is shown under the URL field while it holds the prefilled link.
+const PastedHint = "Link detected from the clipboard"
 
 // Open resets the dialog with a prefilled URL and default folder.
 func (a *Add) Open(prefill, defaultDir string) {
@@ -48,7 +54,8 @@ func (a *Add) Open(prefill, defaultDir string) {
 	a.name.SetText("")
 	a.destDir = defaultDir
 	a.urlErr, a.submitErr = "", ""
-	a.fade = anim.Fade{}
+	a.shell = components.DialogState{}
+	a.pasted, a.focusPending = prefill, true
 }
 
 // SetDestDir sets the destination folder (folder picker result).
@@ -97,27 +104,55 @@ func (a *Add) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot, _ t
 			out = append(out, screens.IntentCommand{Cmd: app.AddDownload{URL: u, DestDir: a.destDir, FileName: strings.TrimSpace(a.name.Text())}})
 		}
 	}
-	body := screens.Column(theme.S3,
-		components.TextField(th, &a.url, "URL", "https://", a.urlErr),
-		recordIf(a.urlErr),
-		screens.Column(theme.S1,
-			screens.Label(th, theme.Caption, th.TextMuted, "Destination folder"),
-			screens.Row(screens.Label(th, theme.Body, th.Text, a.destDir),
-				components.Button(th, &a.change, "Change…", components.Secondary)),
+	if a.focusPending {
+		a.focusPending = false
+		gtx.Execute(key.FocusCmd{Tag: &a.url})
+	}
+	urlHint := func(gtx layout.Context) layout.Dimensions {
+		if a.urlErr != "" || a.pasted == "" || a.url.Text() != a.pasted {
+			return layout.Dimensions{}
+		}
+		return layout.Inset{Top: theme.S1}.Layout(gtx, screens.Label(th, theme.Caption, th.TextMuted, PastedHint))
+	}
+	body := screens.Column(theme.S4,
+		screens.Column(0, components.TextField(th, &a.url, "URL", "https://example.com/file.iso", a.urlErr), recordIf(a.urlErr), urlHint),
+		screens.Column(theme.S1+2,
+			screens.Label(th, theme.Caption, th.TextMuted, "Save to"),
+			a.destRow(th),
 		),
 		components.TextField(th, &a.name, "File name (optional)", "Detected from the server", ""),
 		func(gtx layout.Context) layout.Dimensions {
 			if a.submitErr == "" {
 				return layout.Dimensions{}
 			}
-			return screens.Text(th, theme.Caption, th.Error, a.submitErr, 3)(gtx)
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return icons.Alert(gtx, 13, th.Error) }),
+				layout.Rigid(layout.Spacer{Width: theme.S1 + 1}.Layout),
+				layout.Flexed(1, screens.Text(th, theme.Caption, th.Error, a.submitErr, 3)),
+			)
 		},
 	)
 	actions := screens.Row(components.Button(th, &a.cancel, "Cancel", components.Secondary),
-		components.Button(th, &a.add, "Add", components.Primary))
-	a.fade.Show(true)
-	modal(gtx, th, components.DialogShell(th, &a.fade, "Add download", body, actions))
+		components.Button(th, &a.add, "Add", components.Primary, components.WithIcon(icons.Plus)))
+	a.shell.Fade.Show(true)
+	modal(gtx, th, components.Dialog(th, &a.shell, "Add download", body, actions))
 	return out
+}
+
+// destRow is the destination folder: a sunken strip with a folder icon,
+// the middle-ellipsized path and a "Change…" button.
+func (a *Add) destRow(th *theme.Theme) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		screens.Note(a.destDir)
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return icons.Folder(gtx, 18, th.TextMuted) }),
+			layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
+			layout.Flexed(1, components.PathLabel(th, theme.StyleBody, th.Text, a.destDir)),
+			layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
+			layout.Rigid(components.Button(th, &a.change, "Change…", components.Secondary, components.Small())),
+		)
+	}
 }
 
 // recordIf records s for test text assertions (TextField draws it).

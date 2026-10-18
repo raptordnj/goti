@@ -1,6 +1,7 @@
 package dialogs
 
 import (
+	"image"
 	"slices"
 	"testing"
 
@@ -84,6 +85,7 @@ func TestConfirmRemoveDeletePartial(t *testing.T) {
 		if c.show {
 			hs.click(&d.partial, lay)
 			hs.frame(lay)
+			hs.frame(lay)
 		}
 		hs.click(&d.ok, lay)
 		var got []screens.Intent
@@ -129,5 +131,61 @@ func TestAddURLErrorClearsOnEdit(t *testing.T) {
 	hs.frame(lay)
 	if a.urlErr != "" {
 		t.Fatalf("error not cleared: %q", a.urlErr)
+	}
+}
+
+func TestConfirmRemoveSwitch(t *testing.T) {
+	recordTexts(t)
+	var d Confirm
+	v := task("a", domain.StatePaused, state.SectionPaused)
+	v.Total, v.TotalKnown = 3<<20, true
+	d.Open(screens.ConfirmRemove, v)
+	hs := newHarness(800, 600)
+	s := snapOf(v)
+	lay := func(gtx layout.Context) { d.Layout(gtx, th, s, now) }
+	hs.frame(lay)
+	for _, w := range []string{"a.iso", "0 B of 3.0 MiB", "Also delete partial data"} {
+		if !hasText(t, w) {
+			t.Errorf("missing %q in %v", w, screens.RecordedTexts())
+		}
+	}
+	hs.click(&d.partial, lay)
+	hs.frame(lay)
+	if !d.partial.Value {
+		t.Fatal("switch did not toggle")
+	}
+	hs.click(&d.partial, lay)
+	hs.frame(lay)
+	if d.partial.Value {
+		t.Fatal("switch did not toggle back")
+	}
+}
+
+func TestDialogNarrow(t *testing.T) {
+	var a Add
+	a.Open("https://example.com/f.iso", "/home/user/Downloads/some/really/deep/folder/structure")
+	a.urlErr, a.submitErr = BadURL, "server said no"
+	for _, sz := range [][2]int{{640, 420}, {640, 220}} {
+		hs := newHarness(sz[0], sz[1])
+		s := &state.Snapshot{}
+		lay := func(gtx layout.Context) { a.Layout(gtx, th, s, now) }
+		hs.frame(lay)
+		hs.frame(lay)
+		r := a.shell.Card
+		win := image.Rect(16, 16, sz[0]-16, sz[1]-16)
+		if r.Empty() || !r.In(win) {
+			t.Fatalf("%v: card %v outside %v", sz, r, win)
+		}
+		if r.Dx() != 440 {
+			t.Errorf("%v: card width %d, want 440", sz, r.Dx())
+		}
+		if sz[1] == 220 && !a.shell.List.Position.BeforeEnd {
+			t.Errorf("%v: body not scrollable: %+v", sz, a.shell.List.Position)
+		}
+	}
+	hs := newHarness(300, 420)
+	hs.frame(func(gtx layout.Context) { a.Layout(gtx, th, &state.Snapshot{}, now) })
+	if w := a.shell.Card.Dx(); w != 300-32 {
+		t.Errorf("narrow width %d, want %d", w, 300-32)
 	}
 }

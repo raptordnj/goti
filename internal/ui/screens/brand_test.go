@@ -28,7 +28,7 @@ func TestAboutShowsBrand(t *testing.T) {
 	st.Open(settings.Default())
 	hs := newHarness(800, 4000)
 	hs.frame(func(gtx layout.Context) { st.Layout(gtx, th, &state.Snapshot{}, now) })
-	for _, s := range []string{"About", brand.Name, brand.Wordmark, brand.Tagline, "Version 1.2.3", "Data folder: /data/goti"} {
+	for _, s := range []string{"ABOUT", brand.Name, brand.Wordmark, brand.Tagline, "Version 1.2.3", "Data folder: /data/goti"} {
 		if !hasText(t, s) {
 			t.Errorf("missing %q in %v", s, RecordedTexts())
 		}
