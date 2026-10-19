@@ -1,7 +1,10 @@
-//go:build darwin
+//go:build darwin || android
 
 package tray
 
+// Android has no tray: the foreground-service notification replaces it, and
+// the same stubs apply.
+//
 // hostAvailable is false on macOS: the tray stays disabled (closing the window
 // quits) until a main-thread integration is verified on a Mac. systray's
 // start func (C.nativeStart) creates the NSStatusItem on the calling thread,

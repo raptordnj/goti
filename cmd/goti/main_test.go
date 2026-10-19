@@ -106,3 +106,16 @@ func TestStartupMessage(t *testing.T) {
 		t.Fatalf("db: %q", got)
 	}
 }
+
+func TestKeepAliveOnAndroidPolicy(t *testing.T) {
+	if !keepAlive(true, false) || !keepAlive(false, true) || keepAlive(false, false) {
+		t.Fatal("keepAlive policy wrong")
+	}
+}
+
+func TestAndroidDataDir(t *testing.T) {
+	got := androidDataDir("/data/user/0/io.github.raptordnj.goti/files")
+	if want := "/data/user/0/io.github.raptordnj.goti/files/goti"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}

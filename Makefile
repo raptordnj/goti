@@ -1,4 +1,4 @@
-.PHONY: package-linux test race lint fuzz bench build cross gui screenshots
+.PHONY: android-vet package-linux test race lint fuzz bench build cross gui screenshots
 
 test:
 	go test -timeout 30m ./...
@@ -43,3 +43,8 @@ VERSION ?= 0.0.0-dev
 ARCH ?= $(shell go env GOARCH)
 package-linux:
 	scripts/package-linux.sh $(VERSION) $(ARCH)
+
+ANDROID_NDK_ROOT ?= $(lastword $(sort $(wildcard $(ANDROID_HOME)/ndk/*)))
+
+android-vet:
+	GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang go vet ./...
