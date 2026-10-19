@@ -133,3 +133,19 @@ func TestRespawnPolicy(t *testing.T) {
 		t.Fatalf("normal: %v %v", d, ok)
 	}
 }
+
+func TestEnsureDownloadDir(t *testing.T) {
+	d := filepath.Join(t.TempDir(), "files", "Downloads")
+	if err := ensureDownloadDir(false, d); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(d); !os.IsNotExist(err) {
+		t.Fatalf("desktop must not create the dir: %v", err)
+	}
+	if err := ensureDownloadDir(true, d); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(d); err != nil || !fi.IsDir() {
+		t.Fatalf("mobile dir not created: %v", err)
+	}
+}

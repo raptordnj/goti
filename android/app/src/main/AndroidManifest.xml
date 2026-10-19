@@ -17,6 +17,7 @@
             android:name=".GotiActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|density|uiMode"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

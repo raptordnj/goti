@@ -87,6 +87,9 @@ func build(dataDir string) (*runtime, error) {
 	}
 	repo := settings.NewRepo(db, log)
 	s := repo.Load(context.Background())
+	if err := ensureDownloadDir(platform.Mobile, s.DownloadDir); err != nil {
+		log.Warn("cannot create download directory", "dir", s.DownloadDir, "err", err)
+	}
 	clock := domain.RealClock{}
 	bus := events.NewBus(cfg.ProgressHz, clock)
 	bw := ratelimit.NewBandwidth(s.GlobalRateLimit)
@@ -221,6 +224,15 @@ func respawnPolicy(ctxErr error, lived time.Duration) (delay time.Duration, ok b
 		return time.Second, true
 	}
 	return 0, true
+}
+
+// ensureDownloadDir creates the download directory on mobile, where the
+// default (under the app's private files dir) does not exist on first run.
+func ensureDownloadDir(mobile bool, dir string) error {
+	if !mobile || dir == "" {
+		return nil
+	}
+	return os.MkdirAll(dir, 0o700)
 }
 
 // androidDataDir is the data directory under Gio's per-app files directory.
