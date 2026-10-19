@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image"
+	"image/color"
 	"io"
 	"log/slog"
 	"strings"
@@ -393,18 +394,26 @@ func (c *controller) safeArea(gtx layout.Context, th *theme.Theme) (layout.Conte
 	full := gtx.Constraints.Max
 	t, b := gtx.Dp(in.Top), gtx.Dp(in.Bottom)
 	l, r := gtx.Dp(in.Left), gtx.Dp(in.Right)
-	topC, botC := th.Surface, th.Bg // header above, list below
-	switch {
-	case c.settingsOpen:
-		topC, botC = th.Bg, th.Surface // page above, sticky footer below
-	case c.main.DetailsMode == screens.DetailsPage:
-		topC, botC = th.Surface, th.Surface
-	}
+	topC, botC := c.barColors(th)
 	paint.FillShape(gtx.Ops, botC, clip.Rect{Max: full}.Op())
 	paint.FillShape(gtx.Ops, topC, clip.Rect{Max: image.Pt(full.X, t)}.Op())
+	inner := image.Pt(max(full.X-l-r, 0), max(full.Y-t-b, 0))
 	st := op.Offset(image.Pt(l, t)).Push(gtx.Ops)
-	gtx.Constraints = layout.Exact(image.Pt(max(full.X-l-r, 0), max(full.Y-t-b, 0)))
-	return gtx, st.Pop
+	cl := clip.Rect{Max: inner}.Push(gtx.Ops) // screens' full fills stay inside
+	gtx.Constraints = layout.Exact(inner)
+	return gtx, func() { cl.Pop(); st.Pop() }
+}
+
+// barColors are the colours of the screen edges under the status bar and
+// the navigation bar.
+func (c *controller) barColors(th *theme.Theme) (top, bottom color.NRGBA) {
+	switch {
+	case c.settingsOpen:
+		return th.Bg, th.Surface // page above, sticky footer below
+	case c.main.DetailsMode == screens.DetailsPage:
+		return th.Surface, th.Surface
+	}
+	return th.Surface, th.Bg // header above, list below
 }
 
 // wireReduceMotion makes animations follow the saved Reduce motion setting.
@@ -438,6 +447,7 @@ func RunWindow(d WindowDeps) error {
 	wireReduceMotion(d.App.Settings)
 	light, dark := theme.New(theme.Light()), theme.New(theme.Dark())
 	var ops op.Ops
+	var bars [2]color.NRGBA
 	for {
 		ev := w.Event()
 		picker.ListenEvents(ev)
@@ -463,6 +473,13 @@ func RunWindow(d WindowDeps) error {
 			}
 			c.frame(gtx, th, snap, time.Now())
 			e.Frame(gtx.Ops)
+			if platform.Mobile {
+				// Bar colours also pick dark or light system icons.
+				if top, bot := c.barColors(th); top != bars[0] || bot != bars[1] {
+					bars = [2]color.NRGBA{top, bot}
+					w.Option(gioapp.StatusColor(top), gioapp.NavigationColor(bot))
+				}
+			}
 		}
 	}
 }

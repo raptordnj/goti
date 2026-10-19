@@ -336,3 +336,20 @@ func TestSharedURLShowsSharedHint(t *testing.T) {
 		t.Fatalf("hint %q", c.add.Hint())
 	}
 }
+
+func TestSafeAreaInsets(t *testing.T) {
+	c, _ := newCtl(true)
+	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Exact(image.Pt(360, 780)), Metric: unit.Metric{PxPerDp: 2, PxPerSp: 2}}
+	th := theme.New(theme.Light())
+	g, pop := c.safeArea(gtx, th)
+	pop()
+	if g.Constraints != gtx.Constraints {
+		t.Fatalf("no insets changed constraints: %v", g.Constraints)
+	}
+	c.insets = layout.Inset{Top: 24, Bottom: 48}
+	g, pop = c.safeArea(gtx, th)
+	pop()
+	if want := layout.Exact(image.Pt(360, 780-144)); g.Constraints != want {
+		t.Fatalf("constraints %v want %v", g.Constraints, want)
+	}
+}
