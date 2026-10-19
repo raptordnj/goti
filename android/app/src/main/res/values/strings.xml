@@ -3,6 +3,6 @@
     <string name="app_name">Goti</string>
     <string name="channel_downloads">Downloads</string>
     <string name="open">Open</string>
-    <string name="timeout_title">Downloads paused</string>
-    <string name="timeout_text">Android stopped background downloading. Open Goti to resume.</string>
+    <string name="timeout_title">Goti</string>
+    <string name="timeout_text">Downloads paused by Android — tap to resume</string>
 </resources>

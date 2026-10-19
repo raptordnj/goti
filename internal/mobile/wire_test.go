@@ -46,10 +46,10 @@ func TestInboxSharedURLTakenOnce(t *testing.T) {
 func TestInboxBoundSend(t *testing.T) {
 	var n int
 	i := &Inbox{}
-	i.Dispatch("pause_all") // unbound: ignored, no panic
+	i.Dispatch("pause_all") // unbound: queued, delivered on Bind
 	i.Bind(func(app.Command) bool { n++; return true }, nil, nil)
 	i.Dispatch("pause_all")
-	if n != 1 {
+	if n != 2 {
 		t.Fatalf("n = %d", n)
 	}
 }
@@ -64,3 +64,45 @@ func TestOnceFunc(t *testing.T) {
 	}
 }
 
+
+func TestInboxQueuesUntilBound(t *testing.T) {
+	i := &Inbox{}
+	i.Dispatch("pause_all")
+	i.Dispatch("resume_all")
+	i.Dispatch("bogus")
+	for n := 0; n < 10; n++ {
+		i.Dispatch("pause_all")
+	}
+	var sent []app.Command
+	i.Bind(func(c app.Command) bool { sent = append(sent, c); return true }, nil, nil)
+	if len(sent) != maxPending {
+		t.Fatalf("flushed %d, want %d", len(sent), maxPending)
+	}
+	for _, c := range sent {
+		if _, ok := c.(app.PauseAll); !ok {
+			t.Fatalf("kept wrong (old) actions: %#v", sent)
+		}
+	}
+	sent = nil
+	i.Bind(func(c app.Command) bool { sent = append(sent, c); return true }, nil, nil)
+	if len(sent) != 0 {
+		t.Fatalf("re-flushed %#v", sent)
+	}
+}
+
+func TestInboxQueueKeepsOrder(t *testing.T) {
+	i := &Inbox{}
+	i.Dispatch("pause_all") // e.g. service timeout before Go bound
+	i.Dispatch("resume_all")
+	var sent []app.Command
+	i.Bind(func(c app.Command) bool { sent = append(sent, c); return true }, nil, nil)
+	if len(sent) != 2 {
+		t.Fatalf("sent %#v", sent)
+	}
+	if _, ok := sent[0].(app.PauseAll); !ok {
+		t.Fatalf("order %#v", sent)
+	}
+	if _, ok := sent[1].(app.ResumeAll); !ok {
+		t.Fatalf("order %#v", sent)
+	}
+}

@@ -10,4 +10,6 @@ class ShareIntentsTest {
     @Test fun trailingPunctuation() = assertEquals("http://h/p", ShareIntents.extractUrl("see (http://h/p)."))
     @Test fun noLink() = assertNull(ShareIntents.extractUrl("no link here"))
     @Test fun nullText() = assertNull(ShareIntents.extractUrl(null))
+    @Test fun schemeOnly() = assertNull(ShareIntents.extractUrl("open https:// now"))
+    @Test fun schemeOnlyPunct() = assertNull(ShareIntents.extractUrl("https://)."))
 }

@@ -27,6 +27,7 @@ class GotiActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         if (intent.action == Intent.ACTION_SEND) {
             ShareIntents.extractUrl(intent.getStringExtra(Intent.EXTRA_TEXT))?.let { Bridge.nativeSharedUrl(it) }
         }

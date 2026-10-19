@@ -21,23 +21,34 @@ type Inbox struct {
 	send       func(app.Command) bool
 	invalidate func()
 	log        *slog.Logger
+	pending    []string // actions received before Bind, oldest first
 }
+
+// maxPending caps actions queued before the app is bound (newest kept).
+const maxPending = 8
 
 // DefaultInbox is the inbox the JNI exports deliver to.
 var DefaultInbox = &Inbox{}
 
 // Bind sets the command sink, the window wake-up and the logger (nil = keep).
+// Actions dispatched while unbound are delivered in order on the first Bind
+// with a send.
 func (i *Inbox) Bind(send func(app.Command) bool, invalidate func(), log *slog.Logger) {
 	i.mu.Lock()
-	defer i.mu.Unlock()
+	var flush []string
 	if send != nil {
 		i.send = send
+		flush, i.pending = i.pending, nil
 	}
 	if invalidate != nil {
 		i.invalidate = invalidate
 	}
 	if log != nil {
 		i.log = log
+	}
+	i.mu.Unlock()
+	for _, name := range flush {
+		i.Action(name, send)
 	}
 }
 
@@ -68,10 +79,20 @@ func (i *Inbox) Action(name string, send func(app.Command) bool) {
 	}
 }
 
-// Dispatch runs Action with the bound command sink.
+// Dispatch runs Action with the bound command sink, or queues the action
+// until Bind when the app is not bound yet (e.g. a notification tap that
+// restarted the process before Go main wired the app).
 func (i *Inbox) Dispatch(name string) {
 	i.mu.Lock()
 	send := i.send
+	if send == nil {
+		i.pending = append(i.pending, name)
+		if len(i.pending) > maxPending {
+			i.pending = i.pending[len(i.pending)-maxPending:]
+		}
+		i.mu.Unlock()
+		return
+	}
 	i.mu.Unlock()
 	i.Action(name, send)
 }

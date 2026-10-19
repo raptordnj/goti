@@ -8,6 +8,7 @@ object ShareIntents {
     /** First http(s) URL in [text] with trailing punctuation trimmed, or null. */
     fun extractUrl(text: String?): String? {
         val m = url.find(text ?: return null) ?: return null
-        return m.value.trimEnd { it in TRAILING }.takeIf { it.length > "http://".length }
+        // Require a host character after "://" (rejects a bare "https://").
+        return m.value.trimEnd { it in TRAILING }.takeIf { it.substringAfter("://").isNotEmpty() }
     }
 }

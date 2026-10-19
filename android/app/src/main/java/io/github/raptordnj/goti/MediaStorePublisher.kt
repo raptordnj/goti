@@ -52,7 +52,12 @@ object MediaStorePublisher {
                 (if (name.contains('.')) "." + name.substringAfterLast('.') else ""))
             i++
         }
-        val copied = src.inputStream().use { inp -> dst.outputStream().use { inp.copyTo(it) } }
+        val copied = try {
+            src.inputStream().use { inp -> dst.outputStream().use { inp.copyTo(it) } }
+        } catch (e: Exception) {
+            dst.delete() // no partial file left in public Downloads
+            throw e
+        }
         if (copied != src.length()) {
             dst.delete()
             return null
