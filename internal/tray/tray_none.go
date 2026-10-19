@@ -1,8 +1,11 @@
-//go:build darwin
+//go:build darwin || android
 
 package tray
 
-// hostAvailable is false on macOS: the tray stays disabled (closing the window
+// Stubs for platforms without a tray. On Android the foreground-service
+// notification replaces the tray.
+//
+// On macOS hostAvailable is false: the tray stays disabled (closing the window
 // quits) until a main-thread integration is verified on a Mac. systray's
 // start func (C.nativeStart) creates the NSStatusItem on the calling thread,
 // but Gio's app.Main owns the main thread, so starting it from a goroutine can

@@ -245,6 +245,21 @@ var (
 		q.poly(8, 4.75, 8, 8.5)
 	}, func(q *pen) { q.circle(8, 11.1, 0.85) })
 
+	// Share is the Android share glyph: three nodes joined by two links.
+	Share = lined(func(q *pen) {
+		q.circle(12, 3.5, 1.75)
+		q.circle(4, 8, 1.75)
+		q.circle(12, 12.5, 1.75)
+		q.poly(10.5, 4.35, 5.5, 7.15)
+		q.poly(5.5, 8.85, 10.5, 11.65)
+	}, nil)
+
+	// ArrowLeft is the back arrow of full-window pages.
+	ArrowLeft = lined(func(q *pen) {
+		q.poly(13, 8, 3, 8)
+		q.poly(7.5, 3.5, 3, 8, 7.5, 12.5)
+	}, nil)
+
 	WifiOff = lined(func(q *pen) {
 		q.arc(8, 13.25, 3.5, -0.75*math.Pi, 0.5*math.Pi)
 		q.arc(8, 13.25, 7, -0.75*math.Pi, 0.5*math.Pi)

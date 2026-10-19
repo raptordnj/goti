@@ -9,9 +9,11 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	gioapp "gioui.org/app"
 	"gioui.org/io/system"
@@ -21,6 +23,7 @@ import (
 	"github.com/raptordnj/goti/internal/domain"
 	"github.com/raptordnj/goti/internal/downloader"
 	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/mobile"
 	"github.com/raptordnj/goti/internal/persistence"
 	"github.com/raptordnj/goti/internal/platform"
 	"github.com/raptordnj/goti/internal/ratelimit"
@@ -52,6 +55,9 @@ type runtime struct {
 	// trayOK is set once the system tray is up.
 	trayOK atomic.Bool
 
+	// onAdd runs after each Add submit (Android: notification permission once).
+	onAdd func()
+
 	winMu sync.Mutex
 	win   *gioapp.Window // the open window, nil when closed to tray
 }
@@ -81,6 +87,9 @@ func build(dataDir string) (*runtime, error) {
 	}
 	repo := settings.NewRepo(db, log)
 	s := repo.Load(context.Background())
+	if err := ensureDownloadDir(platform.Mobile, s.DownloadDir); err != nil {
+		log.Warn("cannot create download directory", "dir", s.DownloadDir, "err", err)
+	}
 	clock := domain.RealClock{}
 	bus := events.NewBus(cfg.ProgressHz, clock)
 	bw := ratelimit.NewBandwidth(s.GlobalRateLimit)
@@ -140,8 +149,10 @@ func (r *runtime) showWindow() {
 	r.win = w
 	inv := w.Invalidate
 	r.invalidate.Store(&inv)
+	started := time.Now()
 	go func() {
-		err := ui.RunWindow(ui.WindowDeps{App: r.app, Store: r.store, Window: w, TrayAvailable: r.trayOK.Load,
+		err := ui.RunWindow(ui.WindowDeps{App: r.app, Store: r.store, Window: w, KeepAlive: func(closeToTray bool) bool { return keepAlive(platform.Mobile, closeToTray, r.trayOK.Load()) },
+			TakeSharedURL: mobile.DefaultInbox.TakeSharedURL, OnAddSubmit: r.onAdd,
 			Logger: r.log, Version: version, DataDir: r.dataDir, OnClosed: func() {
 				r.winMu.Lock()
 				if r.win == w {
@@ -152,6 +163,19 @@ func (r *runtime) showWindow() {
 			}})
 		if err != nil {
 			r.log.Error("window", "err", err)
+		}
+		if platform.Mobile {
+			// The process outlives the activity: leave a pending window for
+			// the next activity, unless shutting down or respawning too fast.
+			delay, ok := respawnPolicy(r.ctx.Err(), time.Since(started))
+			if ok {
+				if delay > 0 {
+					time.Sleep(delay)
+				}
+				if r.ctx.Err() == nil {
+					r.showWindow()
+				}
+			}
 		}
 	}()
 }
@@ -183,6 +207,37 @@ func dataDirFor(flagDir string, env map[string]string, log *slog.Logger) string 
 	return config.ResolveDataDir(env, log)
 }
 
+// keepAlive reports whether closing the window must not quit the app: always
+// on mobile, and on desktop when a tray can bring the window back.
+func keepAlive(mobile, closeToTray, trayAvailable bool) bool {
+	return mobile || (closeToTray && trayAvailable)
+}
+
+// respawnPolicy decides whether to re-create the window on mobile and how
+// long to wait first: never during shutdown, and back off 1s when the
+// previous window lived under a second.
+func respawnPolicy(ctxErr error, lived time.Duration) (delay time.Duration, ok bool) {
+	if ctxErr != nil {
+		return 0, false
+	}
+	if lived < time.Second {
+		return time.Second, true
+	}
+	return 0, true
+}
+
+// ensureDownloadDir creates the download directory on mobile, where the
+// default (under the app's private files dir) does not exist on first run.
+func ensureDownloadDir(mobile bool, dir string) error {
+	if !mobile || dir == "" {
+		return nil
+	}
+	return os.MkdirAll(dir, 0o700)
+}
+
+// androidDataDir is the data directory under Gio's per-app files directory.
+func androidDataDir(gioDataDir string) string { return filepath.Join(gioDataDir, "goti") }
+
 // startupMessage is the text shown when the app cannot start.
 func startupMessage(err error) string {
 	if errors.Is(err, platform.ErrAlreadyRunning) {
@@ -211,7 +266,18 @@ func main() {
 	for _, k := range []string{config.EnvDataDir, config.LegacyEnvDataDir} {
 		env[k] = os.Getenv(k)
 	}
-	dataDir := dataDirFor(*flagDir, env, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	var dataDir string
+	if platform.Mobile {
+		gd, err := gioapp.DataDir()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "goti: "+err.Error())
+			ui.ShowFatal("goti: " + err.Error())
+			os.Exit(1)
+		}
+		dataDir = androidDataDir(gd)
+	} else {
+		dataDir = dataDirFor(*flagDir, env, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	}
 	rt, err := build(dataDir)
 	if err != nil {
 		msg := startupMessage(err)
@@ -220,9 +286,11 @@ func main() {
 		ui.ShowFatal(msg) // exits 1 once closed
 	}
 
-	sigs := make(chan os.Signal, 2)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	go forwardSignals(sigs, rt.app.Send, rt.log)
+	if !platform.Mobile {
+		sigs := make(chan os.Signal, 2)
+		signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+		go forwardSignals(sigs, rt.app.Send, rt.log)
+	}
 
 	trayStop := make(chan func(), 1)
 	go func() {
@@ -241,12 +309,18 @@ func main() {
 
 	// The tray comes up in the background (≤ 2 s) so the window is not
 	// delayed; until it is ready, closing the window quits.
-	go func() {
-		ok, stop := tray.Start(tray.Deps{Send: rt.app.Send, Snapshot: rt.store.Load, Show: rt.showWindow})
-		rt.log.Info("tray", "available", ok)
-		rt.trayOK.Store(ok)
-		trayStop <- stop
-	}()
+	if !platform.Mobile {
+		go func() {
+			ok, stop := tray.Start(tray.Deps{Send: rt.app.Send, Snapshot: rt.store.Load, Show: rt.showWindow})
+			rt.log.Info("tray", "available", ok)
+			rt.trayOK.Store(ok)
+			trayStop <- stop
+		}()
+	}
+	if platform.Mobile {
+		rt.onAdd = mobile.Start(mobile.Deps{Ctx: rt.ctx, Load: rt.store.Load, KV: rt.db, Send: rt.app.Send,
+			Invalidate: rt.invalidateWindow, Log: rt.log})
+	}
 	rt.showWindow()
 	gioapp.Main()
 }

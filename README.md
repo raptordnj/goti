@@ -25,6 +25,7 @@ Download the file for your platform from the
 | Other Linux (glibc 2.35+) | `goti_<ver>_linux_<arch>.tar.gz` | extract, then `./install-linux.sh` (installs for the current user) |
 | Windows 10/11 | `Goti_<ver>_windows_amd64_setup.exe` | run the installer (a portable `.zip` is also provided) |
 | macOS 11+ | `Goti_<ver>_macos_<arch>.dmg` | open the dmg, drag Goti to Applications |
+| Android 8.0+ | `Goti_<ver>_android_universal.apk` | open the APK on the phone and allow installs from your browser or file manager |
 
 Linux packages are built for `amd64` and `arm64`; macOS for `arm64` (Apple
 silicon) and `amd64` (Intel). Each package contains the GUI (`goti`) and the
@@ -34,6 +35,8 @@ The builds are not code-signed by a paid certificate:
 
 - Windows: SmartScreen may say "Windows protected your PC". Click
   **More info**, then **Run anyway**.
+- Android: the APK is signed with the project's own release key (not a Play Store
+  build). Updates install over earlier versions because the key stays the same.
 - macOS: the app is ad-hoc signed but not notarized. On first launch,
   right-click Goti in Applications and choose **Open**, then **Open** again.
 
@@ -64,6 +67,12 @@ the CLI, it needs cgo and platform graphics headers.
 The images are rendered headlessly from fixtures (`make screenshots`); the
 full set, including narrow layouts, dialogs, the row menu and toasts, is in
 [`docs/screenshots/`](docs/screenshots/).
+
+On Android (captured on a device):
+
+| Main screen | Notification |
+|---|---|
+| <img src="docs/screenshots/android-main.png" alt="Goti on Android, main screen" width="285"> | <img src="docs/screenshots/android-notification.png" alt="Goti's ongoing download notification" width="285"> |
 
 ### Build dependencies
 
@@ -343,8 +352,56 @@ git tag vX.Y.Z && git push origin vX.Y.Z
 
 GitHub Actions runs only on version tags: the tag push runs the checks (gofmt, vet, race tests),
 builds every platform (Linux deb/rpm/Arch/tar.gz for amd64 and arm64, Windows NSIS installer and
-zip, macOS dmg for Apple Silicon and Intel) and publishes them in one GitHub Release with
+zip, macOS dmg for Apple Silicon and Intel, a signed universal Android APK) and publishes them in one GitHub Release with
 `SHA256SUMS`. A tag containing `-` (for example `v1.2.0-rc.1`) is published as a pre-release.
+
+### Android builds
+
+Needs the Android SDK (`ANDROID_HOME`), NDK 27, JDK 21 and `gogio`
+(`go install gioui.org/cmd/gogio@v0.10.3`):
+
+```sh
+make apk-debug                               # android/app/build/outputs/apk/debug/app-debug.apk
+scripts/package-android.sh 0.2.0 dist        # signed release APK
+```
+
+`package-android.sh` reads the signing key from `ANDROID_KEYSTORE_B64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`;
+CI takes them from repository secrets of the same names.
+
+#### Device smoke test
+
+Run before tagging a release (CI does not run an emulator). It needs a
+running emulator or VM on `adb` and a debug APK:
+
+```sh
+make apk-debug
+scripts/android-smoke.sh android/app/build/outputs/apk/debug/app-debug.apk
+# AVD emulator instead of Genymotion:
+ADB_SERIAL=emulator-5554 HOST_IP=10.0.2.2 scripts/android-smoke.sh app-debug.apk
+```
+
+It serves a 20 MiB file from the host, adds it through the debug-only
+`io.github.raptordnj.goti.debug.ADD` intent (absent from release builds) with
+notifications denied, and checks: the dataSync service is in the foreground
+while downloading; Back then relaunch resumes the activity in the same
+process; the file lands in Downloads/Goti and the service stops afterwards;
+after the process is killed mid-download the service restarts in the
+foreground and the download finishes. Each check prints PASS or FAIL.
+
+Manual checks (not scripted):
+
+- Share a link from a browser to Goti: the Add sheet opens with the URL.
+- First Add asks for the notification permission; the ongoing notification
+  shows progress, Pause all / Resume all work, and Open brings the app back.
+- A finished download shows a "Downloads complete" notification and opens /
+  shares from the row menu with an installed viewer.
+- Rotate during a download and switch light/dark theme: layout and system
+  bar colours follow, the download keeps going.
+- Swipe Goti away from recents during a download, then reopen it from the
+  launcher: the list shows the running download.
+- Airplane mode mid-download: the offline banner shows and the download
+  resumes when the network returns.
 
 ## Local smoke benchmarks
 

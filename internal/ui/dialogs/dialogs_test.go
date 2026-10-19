@@ -185,7 +185,48 @@ func TestDialogNarrow(t *testing.T) {
 	}
 	hs := newHarness(300, 420)
 	hs.frame(func(gtx layout.Context) { a.Layout(gtx, th, &state.Snapshot{}, now) })
-	if w := a.shell.Card.Dx(); w != 300-32 {
-		t.Errorf("narrow width %d, want %d", w, 300-32)
+	// Below the compact breakpoint Add is a full-width bottom sheet.
+	if w := a.shell.Card.Dx(); w != 300 {
+		t.Errorf("narrow width %d, want %d", w, 300)
+	}
+}
+
+func TestAddSharedHint(t *testing.T) {
+	recordTexts(t)
+	var a Add
+	a.OpenShared("https://x.y/a.zip", "/tmp")
+	hs := newHarness(800, 600)
+	hs.frame(func(gtx layout.Context) { a.Layout(gtx, th, &state.Snapshot{}, now) })
+	if !hasText(t, SharedHint) || hasText(t, PastedHint) {
+		t.Fatalf("texts %v", screens.RecordedTexts())
+	}
+}
+
+func TestAddBottomSheetCompact(t *testing.T) {
+	var a Add
+	a.Open("", "/tmp")
+	hs := newHarness(360, 780)
+	hs.frame(func(gtx layout.Context) { a.Layout(gtx, th, &state.Snapshot{}, now) })
+	c := a.shell.Card
+	if c.Min.X != 0 || c.Max.X != 360 || c.Max.Y != 780 {
+		t.Fatalf("sheet rect %v", c)
+	}
+	var d Add
+	d.Open("", "/tmp")
+	hs = newHarness(800, 600)
+	hs.frame(func(gtx layout.Context) { d.Layout(gtx, th, &state.Snapshot{}, now) })
+	if c := d.shell.Card; c.Dx() != 440 || c.Max.Y == 600 {
+		t.Fatalf("desktop card %v", c)
+	}
+}
+
+func TestAddHidesSaveToOnMobile(t *testing.T) {
+	recordTexts(t)
+	a := Add{Mobile: true}
+	a.Open("", "/data/private")
+	hs := newHarness(360, 780)
+	hs.frame(func(gtx layout.Context) { a.Layout(gtx, th, &state.Snapshot{}, now) })
+	if hasText(t, "Save to") || hasText(t, "/data/private") {
+		t.Fatalf("mobile Add shows the folder row: %v", screens.RecordedTexts())
 	}
 }

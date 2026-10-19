@@ -181,3 +181,16 @@ func TestButtonDisabledDims(t *testing.T) {
 		t.Fatalf("opacity enabled=%v disabled=%v", en, dis)
 	}
 }
+
+func TestMenuTouchItems(t *testing.T) {
+	hs := newHarness()
+	m := &MenuState{Open: true, Anchor: image.Pt(100, 100), Items: menuItems()}
+	f := func(gtx layout.Context) { m.Layout(gtx, lth) }
+	hs.frame(f)
+	h := m.rect.Dy()
+	m.Touch = true
+	hs.frame(f)
+	if got := m.rect.Dy() - h; got != 3*(44-30) {
+		t.Fatalf("touch menu grew by %d px, want %d", got, 3*(44-30))
+	}
+}

@@ -140,9 +140,46 @@ jobs:
             dist/*.tar.gz
           if-no-files-found: error
 
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check signing secrets
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_B64" ]; then echo "::error::Release signing secrets missing"; exit 1; fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+      - name: Install gogio
+        run: go install gioui.org/cmd/gogio@v0.10.3 && echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Package
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.2.12479018
+        run: scripts/package-android.sh "${VERSION#v}" dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: goti-android
+          path: dist/*.apk
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, windows, macos]
+    needs: [linux, windows, macos, android]
     runs-on: ubuntu-22.04
     permissions:
       contents: write

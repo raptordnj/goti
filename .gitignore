@@ -5,3 +5,4 @@ coverage.out
 /goti-cli
 /dist/
 /cmd/goti/rsrc_windows_*.syso
+/android/app/libs/*.aar

@@ -18,9 +18,11 @@ import (
 
 // Fixed copy for empty and offline states.
 const (
-	EmptyTitle  = "No downloads yet"
-	EmptyHint   = "Paste a link with Ctrl+V or click Add"
-	OfflineText = "You're offline — downloads resume automatically"
+	EmptyTitle = "No downloads yet"
+	EmptyHint  = "Paste a link with Ctrl+V or click Add"
+	// EmptyHintTouch replaces EmptyHint in compact (touch) layouts.
+	EmptyHintTouch = "Share a link to Goti, or tap + to add one"
+	OfflineText    = "You're offline — downloads resume automatically"
 )
 
 // emptyTile is the size of the empty state's icon tile.
@@ -28,11 +30,13 @@ const emptyTile unit.Dp = 48
 
 // layoutEmpty draws the empty-state stack centred on the whole window (not
 // just the area under the header) and returns its window bounds.
-func layoutEmpty(gtx layout.Context, th *theme.Theme, add *widget.Clickable) image.Rectangle {
+// In compact layouts the touch hint replaces the keyboard one and the
+// floating Add button replaces the stack's own.
+func layoutEmpty(gtx layout.Context, th *theme.Theme, add *widget.Clickable, compact bool) image.Rectangle {
 	full := gtx.Constraints.Max
 	gtx.Constraints.Min = image.Point{}
 	m := op.Record(gtx.Ops)
-	d := emptyStack(th, add)(gtx)
+	d := emptyStack(th, add, compact)(gtx)
 	call := m.Stop()
 	off := image.Pt((full.X-d.Size.X)/2, (full.Y-d.Size.Y)/2)
 	st := op.Offset(off).Push(gtx.Ops)
@@ -42,8 +46,12 @@ func layoutEmpty(gtx layout.Context, th *theme.Theme, add *widget.Clickable) ima
 }
 
 // emptyStack is one calm centred column: icon tile, brand, copy, action.
-func emptyStack(th *theme.Theme, add *widget.Clickable) layout.Widget {
+func emptyStack(th *theme.Theme, add *widget.Clickable, compact bool) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
+		hint := EmptyHint
+		if compact {
+			hint = EmptyHintTouch
+		}
 		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				sz := image.Pt(gtx.Dp(emptyTile), gtx.Dp(emptyTile))
@@ -60,9 +68,17 @@ func emptyStack(th *theme.Theme, add *widget.Clickable) layout.Widget {
 			layout.Rigid(layout.Spacer{Height: theme.S6}.Layout),
 			layout.Rigid(bold(th, theme.Title, th.Text, EmptyTitle)),
 			layout.Rigid(layout.Spacer{Height: theme.S1}.Layout),
-			layout.Rigid(Label(th, theme.Body, th.TextMuted, EmptyHint)),
-			layout.Rigid(layout.Spacer{Height: theme.S4}.Layout),
+			layout.Rigid(Label(th, theme.Body, th.TextMuted, hint)),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if compact {
+					return layout.Dimensions{}
+				}
+				return layout.Spacer{Height: theme.S4}.Layout(gtx)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if compact {
+					return layout.Dimensions{}
+				}
 				Note("Add download")
 				return components.Button(th, add, "Add download", components.Primary, components.WithIcon(icons.Plus))(gtx)
 			}),

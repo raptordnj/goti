@@ -9,6 +9,7 @@ import (
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
+	"gioui.org/unit"
 	"gioui.org/widget"
 
 	"github.com/raptordnj/goti/internal/ui/icons"
@@ -16,8 +17,10 @@ import (
 )
 
 const (
-	menuWidth  = 200
-	menuItemH  = 30
+	menuWidth = 200
+	menuItemH = 30
+	// touchItemH is the item height of touch (compact) menus.
+	touchItemH = 44
 	menuMargin = 4
 )
 
@@ -33,6 +36,8 @@ type MenuState struct {
 	Open   bool
 	Anchor image.Point
 	Items  []MenuItem
+	// Touch uses 44-dp items (compact layouts).
+	Touch bool
 
 	list    widget.List
 	clicks  []widget.Clickable
@@ -211,7 +216,11 @@ func (m *MenuState) item(gtx layout.Context, th *theme.Theme, i int) layout.Dime
 	}
 	return c.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		pointer.CursorPointer.Add(gtx.Ops)
-		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(menuItemH))
+		ih := unit.Dp(menuItemH)
+		if m.Touch {
+			ih = touchItemH
+		}
+		gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, gtx.Dp(ih))
 		hot := eased(gtx, c, b2f(c.Hovered() || gtx.Focused(c)))
 		return layout.Background{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			sz := gtx.Constraints.Min

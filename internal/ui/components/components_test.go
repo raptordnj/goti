@@ -282,3 +282,21 @@ func TestInterruptedBarColor(t *testing.T) {
 		t.Fatalf("light interrupted bar uses the text Warning %v", got)
 	}
 }
+
+func TestRowMenuShareOnMobile(t *testing.T) {
+	v := state.TaskView{ID: "a"}
+	label := func(items []MenuItem) string {
+		for _, it := range items {
+			if it.Key == "folder" {
+				return it.Label
+			}
+		}
+		return ""
+	}
+	if got := label(rowMenuItems(v, false)); got != "Show in folder" {
+		t.Errorf("desktop %q", got)
+	}
+	if got := label(rowMenuItems(v, true)); got != "Share" {
+		t.Errorf("mobile %q", got)
+	}
+}

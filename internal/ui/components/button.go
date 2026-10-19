@@ -136,6 +136,12 @@ func Button(th *theme.Theme, c *widget.Clickable, txt string, kind ButtonKind, o
 
 // IconButton is a 28-dp square ghost button; desc is its accessible description.
 func IconButton(th *theme.Theme, c *widget.Clickable, icon icons.Icon, desc string) layout.Widget {
+	return IconButtonSize(th, c, icon, desc, 28)
+}
+
+// IconButtonSize is IconButton with a size x size dp hit area (touch
+// layouts use 40 dp); the glyph stays 16 dp.
+func IconButtonSize(th *theme.Theme, c *widget.Clickable, icon icons.Icon, desc string, size unit.Dp) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		if !gtx.Enabled() {
 			defer paint.PushOpacity(gtx.Ops, disabledAlpha).Pop()
@@ -147,7 +153,7 @@ func IconButton(th *theme.Theme, c *widget.Clickable, icon icons.Icon, desc stri
 					pointer.CursorPointer.Add(gtx.Ops)
 				}
 				hot := eased(gtx, c, b2f(gtx.Enabled() && (c.Hovered() || c.Pressed())))
-				sz := image.Pt(gtx.Dp(28), gtx.Dp(28))
+				sz := image.Pt(gtx.Dp(size), gtx.Dp(size))
 				if hot > 0 {
 					bg := th.SurfaceSunken
 					if c.Pressed() {
@@ -156,7 +162,7 @@ func IconButton(th *theme.Theme, c *widget.Clickable, icon icons.Icon, desc stri
 					fillRRect(gtx, theme.WithAlpha(bg, uint8(float32(bg.A)*hot)), sz, theme.RadiusControl)
 				}
 				fg := theme.Mix(th.TextMuted, th.Text, hot)
-				gtx = fixed(gtx, 28, 28)
+				gtx = fixed(gtx, size, size)
 				layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					if icon == nil {
 						return layout.Dimensions{}

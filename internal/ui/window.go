@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"image"
+	"image/color"
 	"io"
 	"log/slog"
 	"strings"
@@ -11,6 +13,8 @@ import (
 	"gioui.org/io/event"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/x/explorer"
 
@@ -42,7 +46,10 @@ type WindowDeps struct {
 	App   *app.App
 	Store *state.Store
 	// Explorer builds the folder picker for w; nil uses gioui.org/x/explorer.
-	Explorer      func(w *gioapp.Window) FolderPicker
+	Explorer func(w *gioapp.Window) FolderPicker
+	// KeepAlive reports whether destroying the window must not quit, given
+	// the CloseToTray setting. Nil falls back to CloseToTray && TrayAvailable.
+	KeepAlive     func(closeToTray bool) bool
 	TrayAvailable func() bool
 	// OnClosed runs after the window is gone (nil = no-op).
 	OnClosed func()
@@ -52,6 +59,11 @@ type WindowDeps struct {
 	Logger *slog.Logger
 	// Version and DataDir are shown in Settings > About.
 	Version, DataDir string
+	// TakeSharedURL returns a URL shared into the app once (Android), or
+	// "". Checked each frame; non-empty opens the Add dialog prefilled.
+	TakeSharedURL func() string
+	// OnAddSubmit runs after each Add submit (nil = no-op).
+	OnAddSubmit func()
 }
 
 type dialogKind int
@@ -100,6 +112,13 @@ type controller struct {
 	wantClip bool
 	clipReq  bool
 	pickBusy bool
+
+	takeShared func() string
+	onAdd      func()
+
+	// insets are the window's system-bar and keyboard insets; the UI is
+	// laid out inside them and the bars are painted to match.
+	insets layout.Inset
 }
 
 func newController(send func(app.Command) bool, invalidate func()) *controller {
@@ -169,6 +188,18 @@ func (c *controller) openAdd(prefill string, snap *state.Snapshot) {
 	c.dialog, c.addPending, c.lastAddErr = dialogAdd, false, ""
 }
 
+// pollShared opens the Add dialog for a URL shared into the app.
+func (c *controller) pollShared(snap *state.Snapshot) {
+	if c.takeShared == nil {
+		return
+	}
+	if u := c.takeShared(); u != "" {
+		c.openAdd(u, snap)
+		c.add.OpenShared(u, snap.Settings.DownloadDir)
+		c.wantClip = false
+	}
+}
+
 // handle executes one intent.
 func (c *controller) handle(in screens.Intent, snap *state.Snapshot, now time.Time) {
 	switch in := in.(type) {
@@ -179,6 +210,9 @@ func (c *controller) handle(in screens.Intent, snap *state.Snapshot, now time.Ti
 		}
 		switch cmd := in.Cmd.(type) {
 		case app.AddDownload:
+			if c.onAdd != nil {
+				c.onAdd()
+			}
 			c.addPending, c.addBase = true, snap.AddResultSeq
 			c.addKnown = make(map[string]bool, len(snap.Tasks))
 			for _, v := range snap.Tasks {
@@ -279,7 +313,9 @@ func (c *controller) selectNewTask(snap *state.Snapshot) {
 		return
 	}
 	c.selectNew, c.addKnown = false, nil
-	c.main.Selected = best.ID
+	if !c.main.IsCompact() { // on a phone, details would cover the list
+		c.main.Selected = best.ID
+	}
 	c.main.ScrollTo(best.ID)
 }
 
@@ -307,6 +343,7 @@ func (c *controller) afterResults(snap *state.Snapshot) {
 // frame lays out one frame.
 func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time) {
 	c.pollPicked()
+	c.pollShared(snap)
 	c.afterResults(snap)
 	c.syncOptimistic(snap)
 	view := *snap
@@ -315,11 +352,17 @@ func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snap
 	intents := c.keyEvents(gtx, snap)
 	c.clipboardEvents(gtx, snap)
 
+	full := gtx
+	gtx, pop := c.safeArea(gtx, th)
 	if c.settingsOpen {
 		intents = append(intents, c.settings.Layout(gtx, th, &view, now)...)
 	} else {
 		intents = append(intents, c.main.Layout(gtx, th, &view, now)...)
 	}
+	pop()
+	gtx = full
+	c.add.SetInsets(c.insets)
+	c.confirm.SetInsets(c.insets)
 	switch c.dialog {
 	case dialogAdd:
 		intents = append(intents, c.add.Layout(gtx, th, &view, now)...)
@@ -339,6 +382,40 @@ func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snap
 	if len(intents) > 0 {
 		gtx.Execute(op.InvalidateCmd{})
 	}
+}
+
+// safeArea paints the system-bar bands to match the screen under them and
+// returns gtx shrunk and offset to the area inside c.insets, plus the pop
+// of that offset. With no insets (desktop) it returns gtx unchanged and
+// paints nothing.
+func (c *controller) safeArea(gtx layout.Context, th *theme.Theme) (layout.Context, func()) {
+	in := c.insets
+	if in == (layout.Inset{}) {
+		return gtx, func() {}
+	}
+	full := gtx.Constraints.Max
+	t, b := gtx.Dp(in.Top), gtx.Dp(in.Bottom)
+	l, r := gtx.Dp(in.Left), gtx.Dp(in.Right)
+	topC, botC := c.barColors(th)
+	paint.FillShape(gtx.Ops, botC, clip.Rect{Max: full}.Op())
+	paint.FillShape(gtx.Ops, topC, clip.Rect{Max: image.Pt(full.X, t)}.Op())
+	inner := image.Pt(max(full.X-l-r, 0), max(full.Y-t-b, 0))
+	st := op.Offset(image.Pt(l, t)).Push(gtx.Ops)
+	cl := clip.Rect{Max: inner}.Push(gtx.Ops) // screens' full fills stay inside
+	gtx.Constraints = layout.Exact(inner)
+	return gtx, func() { cl.Pop(); st.Pop() }
+}
+
+// barColors are the colours of the screen edges under the status bar and
+// the navigation bar.
+func (c *controller) barColors(th *theme.Theme) (top, bottom color.NRGBA) {
+	switch {
+	case c.settingsOpen:
+		return th.Bg, th.Surface // page above, sticky footer below
+	case c.main.DetailsMode == screens.DetailsPage:
+		return th.Surface, th.Surface
+	}
+	return th.Surface, th.Bg // header above, list below
 }
 
 // wireReduceMotion makes animations follow the saved Reduce motion setting.
@@ -362,14 +439,17 @@ func RunWindow(d WindowDeps) error {
 		picker = explorer.NewExplorer(w)
 	}
 	c := newController(d.App.Send, w.Invalidate)
+	c.takeShared, c.onAdd = d.TakeSharedURL, d.OnAddSubmit
 	c.picker = picker
 	c.settings.Version, c.settings.DataDir = d.Version, d.DataDir
+	c.settings.Mobile, c.add.Mobile = platform.Mobile, platform.Mobile
 	if d.Logger != nil {
 		c.log = d.Logger
 	}
 	wireReduceMotion(d.App.Settings)
 	light, dark := theme.New(theme.Light()), theme.New(theme.Dark())
 	var ops op.Ops
+	var bars [2]color.NRGBA
 	for {
 		ev := w.Event()
 		picker.ListenEvents(ev)
@@ -378,7 +458,7 @@ func RunWindow(d WindowDeps) error {
 			if e.Err != nil {
 				c.log.Error("window error", "err", e.Err)
 			}
-			if !(d.App.Settings().CloseToTray && d.TrayAvailable != nil && d.TrayAvailable()) {
+			if quitOnDestroy(d, d.App.Settings().CloseToTray) {
 				SendQuit(d.App.Send, c.log)
 			}
 			if d.OnClosed != nil {
@@ -386,7 +466,11 @@ func RunWindow(d WindowDeps) error {
 			}
 			return e.Err
 		case gioapp.FrameEvent:
-			gtx := gioapp.NewContext(&ops, e)
+			// Not gioapp.NewContext: it offsets ops by the insets itself;
+			// safeArea applies them so bars and scrims can be painted.
+			ops.Reset()
+			gtx := layout.Context{Ops: &ops, Now: e.Now, Source: e.Source, Metric: e.Metric, Constraints: layout.Exact(e.Size)}
+			c.insets = layout.Inset{Top: e.Insets.Top, Bottom: e.Insets.Bottom, Left: e.Insets.Left, Right: e.Insets.Right}
 			snap := d.Store.Load()
 			th := light
 			if c.themeName(snap) == settings.ThemeDark {
@@ -394,6 +478,50 @@ func RunWindow(d WindowDeps) error {
 			}
 			c.frame(gtx, th, snap, time.Now())
 			e.Frame(gtx.Ops)
+			if platform.Mobile {
+				// Bar colours also pick dark or light system icons.
+				if top, bot := c.barColors(th); top != bars[0] || bot != bars[1] {
+					bars = [2]color.NRGBA{top, bot}
+					w.Option(gioapp.StatusColor(top), gioapp.NavigationColor(bot))
+				}
+			}
+		default:
+			if viewDetached(ev, androidView) {
+				// Android destroyed the activity (Back from a task started
+				// by a share, swipe from recents): Gio sends no
+				// DestroyEvent and keeps this window, but the next
+				// activity's GioView blocks the main thread until a new
+				// Window is created. End here so cmd/goti respawns one,
+				// and keep draining this window so Gio never blocks on it.
+				go drain(w)
+				if d.OnClosed != nil {
+					d.OnClosed()
+				}
+				return nil
+			}
 		}
 	}
+}
+
+// viewDetached reports whether ev says the window lost its Android view.
+func viewDetached(ev event.Event, view func(event.Event) (uintptr, bool)) bool {
+	v, ok := view(ev)
+	return ok && v == 0
+}
+
+// drain consumes a retired window's events until it is destroyed.
+func drain(w *gioapp.Window) {
+	for {
+		if _, ok := w.Event().(gioapp.DestroyEvent); ok {
+			return
+		}
+	}
+}
+
+// quitOnDestroy decides whether destroying the window quits the app.
+func quitOnDestroy(d WindowDeps, closeToTray bool) bool {
+	if d.KeepAlive != nil {
+		return !d.KeepAlive(closeToTray)
+	}
+	return !(closeToTray && d.TrayAvailable != nil && d.TrayAvailable())
 }

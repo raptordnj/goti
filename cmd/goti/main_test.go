@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"os"
@@ -104,5 +105,47 @@ func TestStartupMessage(t *testing.T) {
 	}
 	if got := startupMessage(errors.New("cannot open database: boom")); got != "goti: cannot open database: boom" {
 		t.Fatalf("db: %q", got)
+	}
+}
+
+func TestKeepAliveOnAndroidPolicy(t *testing.T) {
+	if !keepAlive(true, false, false) || !keepAlive(false, true, true) || keepAlive(false, false, true) ||
+		keepAlive(false, true, false) || !keepAlive(true, true, true) {
+		t.Fatal("keepAlive policy wrong")
+	}
+}
+
+func TestAndroidDataDir(t *testing.T) {
+	got := androidDataDir("/data/user/0/io.github.raptordnj.goti/files")
+	if want := "/data/user/0/io.github.raptordnj.goti/files/goti"; got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestRespawnPolicy(t *testing.T) {
+	if _, ok := respawnPolicy(context.Canceled, time.Minute); ok {
+		t.Fatal("respawn during shutdown")
+	}
+	if d, ok := respawnPolicy(nil, 10*time.Millisecond); !ok || d != time.Second {
+		t.Fatalf("fast death: %v %v", d, ok)
+	}
+	if d, ok := respawnPolicy(nil, time.Minute); !ok || d != 0 {
+		t.Fatalf("normal: %v %v", d, ok)
+	}
+}
+
+func TestEnsureDownloadDir(t *testing.T) {
+	d := filepath.Join(t.TempDir(), "files", "Downloads")
+	if err := ensureDownloadDir(false, d); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(d); !os.IsNotExist(err) {
+		t.Fatalf("desktop must not create the dir: %v", err)
+	}
+	if err := ensureDownloadDir(true, d); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(d); err != nil || !fi.IsDir() {
+		t.Fatalf("mobile dir not created: %v", err)
 	}
 }

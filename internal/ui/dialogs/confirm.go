@@ -31,7 +31,7 @@ type Confirm struct {
 // Open prepares the dialog for task v.
 func (c *Confirm) Open(kind screens.ConfirmKind, v state.TaskView) {
 	c.kind, c.task, c.partial = kind, v, widget.Bool{}
-	c.shell = components.DialogState{}
+	c.shell = components.DialogState{Insets: c.shell.Insets}
 }
 
 func (c *Confirm) unfinished() bool {
@@ -102,3 +102,6 @@ func (c *Confirm) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot,
 
 // DeletePartialLabel labels the remove dialog's partial-data switch.
 const DeletePartialLabel = "Also delete partial data"
+
+// SetInsets keeps the dialog inside the window's system insets.
+func (c *Confirm) SetInsets(in layout.Inset) { c.shell.Insets = in }

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Goti</string>
+    <string name="channel_downloads">Downloads</string>
+    <string name="open">Open</string>
+    <string name="timeout_title">Goti</string>
+    <string name="timeout_text">Downloads paused by Android — tap to resume</string>
+</resources>
