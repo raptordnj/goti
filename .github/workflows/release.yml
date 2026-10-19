@@ -90,8 +90,13 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
-            $nsis = Join-Path ${env:ProgramFiles(x86)} 'NSIS'
-            if (-not (Test-Path (Join-Path $nsis 'makensis.exe'))) { choco install nsis -y --no-progress }
+            $dirs = @((Join-Path ${env:ProgramFiles(x86)} 'NSIS'), (Join-Path $env:ProgramFiles 'NSIS'))
+            $nsis = $dirs | Where-Object { Test-Path (Join-Path $_ 'makensis.exe') } | Select-Object -First 1
+            if (-not $nsis) {
+              choco install nsis -y --no-progress
+              $nsis = $dirs | Where-Object { Test-Path (Join-Path $_ 'makensis.exe') } | Select-Object -First 1
+            }
+            if (-not $nsis) { Write-Error 'makensis.exe not found after installing NSIS'; exit 1 }
             Add-Content $env:GITHUB_PATH $nsis
           }
       - name: Package
@@ -159,6 +164,8 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - name: Install SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
       - name: Install gogio
