@@ -55,6 +55,7 @@ ANDROID_SDK_ROOT ?= $(ANDROID_HOME)
 export ANDROID_SDK_ROOT ANDROID_NDK_ROOT
 
 android-aar:
+	mkdir -p android/app/libs
 	$(GOGIO) -target android -buildmode archive -arch arm64,arm,amd64 -appid io.github.raptordnj.goti.gio -minsdk 26 -ldflags "-X main.version=$(VERSION)" -o android/app/libs/goti.aar ./cmd/goti
 
 apk-debug: android-aar
