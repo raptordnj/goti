@@ -141,7 +141,9 @@ func (h *jniHost) PublishToDownloads(path, name, mime string) (string, error) {
 		if err != nil {
 			return err
 		}
-		uri = jni.GoString(env, jni.String(o))
+		if o != 0 {
+			uri = jni.GoString(env, jni.String(o))
+		}
 		return nil
 	})
 	if err != nil {
