@@ -109,11 +109,22 @@ func (c *controller) keyEvents(gtx layout.Context, snap *state.Snapshot) []scree
 		SettingsOpen: c.settingsOpen, InText: inText, ButtonFocused: anyFocus && !inText,
 		MenuOpen: !c.settingsOpen && c.main.MenuOpen()}
 	filters := keyFilters(kc.InText, kc.ButtonFocused)
+	if c.canBack() {
+		// Registered only while there is something to close, so an
+		// unhandled Back lets the system leave the app.
+		filters = append(filters, key.Filter{Name: key.NameBack})
+	}
 	var out []screens.Intent
 	for {
 		ev, ok := gtx.Event(filters...)
 		if !ok {
 			return out
+		}
+		if ke, ok := ev.(key.Event); ok && ke.Name == key.NameBack {
+			if ke.State == key.Press {
+				c.back()
+			}
+			continue
 		}
 		if ke, ok := ev.(key.Event); ok {
 			if kc.MenuOpen && ke.Name == key.NameEscape && ke.State == key.Press {
@@ -155,4 +166,24 @@ func (c *controller) clipboardEvents(gtx layout.Context, snap *state.Snapshot) {
 
 func isHTTPURL(s string) bool {
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// canBack reports whether system Back has something to close.
+func (c *controller) canBack() bool {
+	return c.dialog != dialogNone || c.settingsOpen || c.main.MenuOpen() || c.main.Selected != ""
+}
+
+// back closes the topmost surface: row menu, then dialog or sheet, then
+// settings, then details.
+func (c *controller) back() {
+	switch {
+	case !c.settingsOpen && c.dialog == dialogNone && c.main.MenuOpen():
+		c.main.CloseMenu()
+	case c.dialog != dialogNone:
+		c.dialog, c.addPending, c.wantClip = dialogNone, false, false
+	case c.settingsOpen:
+		c.settingsOpen, c.preview = false, ""
+	case c.main.Selected != "":
+		c.main.Selected = ""
+	}
 }

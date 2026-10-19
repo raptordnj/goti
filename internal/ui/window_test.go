@@ -1,18 +1,26 @@
 package ui
 
 import (
+	"image"
 	"log/slog"
 	"testing"
 	"time"
 
 	"gioui.org/io/event"
+	"gioui.org/io/input"
+	"gioui.org/io/key"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
 
 	"github.com/raptordnj/goti/internal/app"
 	"github.com/raptordnj/goti/internal/domain"
 	"github.com/raptordnj/goti/internal/settings"
 	"github.com/raptordnj/goti/internal/ui/anim"
+	"github.com/raptordnj/goti/internal/ui/dialogs"
 	"github.com/raptordnj/goti/internal/ui/screens"
 	"github.com/raptordnj/goti/internal/ui/state"
+	"github.com/raptordnj/goti/internal/ui/theme"
 )
 
 type fakePicker struct{ path string }
@@ -270,5 +278,61 @@ func TestAddSubmitCallsOnAdd(t *testing.T) {
 	c.handle(screens.IntentCommand{Cmd: app.AddDownload{URL: "https://a/b"}}, &state.Snapshot{}, time.Unix(1e6, 0))
 	if n != 1 {
 		t.Fatalf("onAdd calls = %d", n)
+	}
+}
+
+// backHandled frames c, queues a Back press and reports whether a handler
+// took it (as Gio's Android back dispatch does), then frames again.
+func backHandled(t *testing.T, c *controller, r *input.Router, gtx layout.Context, snap *state.Snapshot) bool {
+	t.Helper()
+	th := theme.New(theme.Light())
+	run := func() {
+		gtx.Ops.Reset()
+		c.frame(gtx, th, snap, time.Unix(1e6, 0))
+		r.Frame(gtx.Ops)
+	}
+	run()
+	r.Queue(key.Event{Name: key.NameBack, State: key.Press})
+	_, handled := r.WakeupTime()
+	run()
+	return handled
+}
+
+func TestBackClosesInOrder(t *testing.T) {
+	c, _ := newCtl(true)
+	var r input.Router
+	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Exact(image.Pt(360, 780)),
+		Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Now: time.Unix(1e6, 0), Source: r.Source()}
+	v := state.TaskView{ID: "a", FileName: "a.iso", State: domain.StateQueued, Section: state.SectionQueued, Percent: -1}
+	snap := &state.Snapshot{Tasks: []state.TaskView{v}}
+	snap.Counts[state.SectionQueued] = 1
+
+	c.main.OpenMenu(snap, "a")
+	if !backHandled(t, c, &r, gtx, snap) || c.main.MenuOpen() {
+		t.Fatal("menu not closed")
+	}
+	c.main.Selected = "a"
+	c.handle(screens.IntentOpenAdd{Prefill: "https://a/b"}, snap, time.Unix(1e6, 0))
+	if !backHandled(t, c, &r, gtx, snap) || c.dialog != dialogNone || c.main.Selected != "a" {
+		t.Fatalf("dialog: %v sel=%q", c.dialog, c.main.Selected)
+	}
+	c.handle(screens.IntentOpenSettings{}, snap, time.Unix(1e6, 0))
+	if !backHandled(t, c, &r, gtx, snap) || c.settingsOpen {
+		t.Fatal("settings not closed")
+	}
+	if !backHandled(t, c, &r, gtx, snap) || c.main.Selected != "" {
+		t.Fatalf("details: sel=%q", c.main.Selected)
+	}
+	if backHandled(t, c, &r, gtx, snap) {
+		t.Fatal("back handled with nothing open")
+	}
+}
+
+func TestSharedURLShowsSharedHint(t *testing.T) {
+	c, _ := newCtl(true)
+	c.takeShared = func() string { u := "https://x.y/a.zip"; c.takeShared = nil; return u }
+	c.pollShared(&state.Snapshot{})
+	if c.add.Hint() != dialogs.SharedHint {
+		t.Fatalf("hint %q", c.add.Hint())
 	}
 }

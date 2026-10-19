@@ -86,6 +86,25 @@ func scenes() []scene {
 	}
 }
 
+// phoneScenes are the compact (phone) layouts, rendered at 360x780 as
+// phone-<name>-<theme>.png.
+func phoneScenes() []scene {
+	return []scene{
+		{"main", Empty, mainScene("", nil)},
+		{"busy", Busy, mainScene("", nil)},
+		{"details", Busy, mainScene("1", nil)},
+		{"add", Busy, mainScene("", func(a *dialogs.Add, _ *dialogs.Confirm, s *state.Snapshot) func(layout.Context, *theme.Theme, *state.Snapshot) {
+			a.OpenShared("https://example.com/big.iso", s.Settings.DownloadDir)
+			return func(g layout.Context, th *theme.Theme, s *state.Snapshot) { a.Layout(g, th, s, Now) }
+		})},
+		{"settings", Busy, func(th *theme.Theme, snap *state.Snapshot) func(layout.Context) {
+			st := screens.Settings{Mobile: true}
+			st.Open(snap.Settings)
+			return func(gtx layout.Context) { st.Layout(gtx, th, snap, Now) }
+		}},
+	}
+}
+
 func TestScreenshots(t *testing.T) {
 	sizes := [][2]int{{1100, 720}, {720, 560}}
 	themes := []struct {
@@ -95,37 +114,54 @@ func TestScreenshots(t *testing.T) {
 		{"light", func() *theme.Theme { return theme.New(theme.Light()) }},
 		{"dark", func() *theme.Theme { return theme.New(theme.Dark()) }},
 	}
+	type job struct {
+		sc   scene
+		tc   int // index in themes
+		w, h int
+		name string
+	}
+	var jobs []job
 	for _, sc := range scenes() {
-		for _, tc := range themes {
+		for ti, tc := range themes {
 			for _, sz := range sizes {
-				name := fmt.Sprintf("%s-%s-%dx%d", sc.name, tc.name, sz[0], sz[1])
-				t.Run(name, func(t *testing.T) {
-					th := tc.th()
-					snap := sc.snap()
-					img, err := Render(sz[0], sz[1], sc.build(th, snap))
-					if errors.Is(err, ErrNoGPU) {
-						t.Skipf("headless rendering unavailable: %v", err)
-					}
-					if err != nil {
-						t.Fatal(err)
-					}
-					if !*update {
-						return
-					}
-					dir := filepath.Join("..", "..", "..", "docs", "screenshots")
-					if err := os.MkdirAll(dir, 0o755); err != nil {
-						t.Fatal(err)
-					}
-					f, err := os.Create(filepath.Join(dir, name+".png"))
-					if err != nil {
-						t.Fatal(err)
-					}
-					defer f.Close()
-					if err := png.Encode(f, img); err != nil {
-						t.Fatal(err)
-					}
-				})
+				jobs = append(jobs, job{sc, ti, sz[0], sz[1], fmt.Sprintf("%s-%s-%dx%d", sc.name, tc.name, sz[0], sz[1])})
 			}
 		}
+	}
+	for _, sc := range phoneScenes() {
+		for ti, tc := range themes {
+			jobs = append(jobs, job{sc, ti, 360, 780, fmt.Sprintf("phone-%s-%s", sc.name, tc.name)})
+		}
+	}
+	for _, j := range jobs {
+		sc, name := j.sc, j.name
+		tc := themes[j.tc]
+		sz := [2]int{j.w, j.h}
+		t.Run(name, func(t *testing.T) {
+			th := tc.th()
+			snap := sc.snap()
+			img, err := Render(sz[0], sz[1], sc.build(th, snap))
+			if errors.Is(err, ErrNoGPU) {
+				t.Skipf("headless rendering unavailable: %v", err)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !*update {
+				return
+			}
+			dir := filepath.Join("..", "..", "..", "docs", "screenshots")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Create(filepath.Join(dir, name+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if err := png.Encode(f, img); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

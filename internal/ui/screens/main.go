@@ -9,6 +9,7 @@ import (
 	"gioui.org/font"
 	"gioui.org/io/event"
 	"gioui.org/io/pointer"
+	"gioui.org/io/semantic"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -43,6 +44,8 @@ const (
 	DetailsNone DetailsMode = iota
 	DetailsPane
 	DetailsSheet
+	// DetailsPage is the compact layout's full-window details page.
+	DetailsPage
 )
 
 var sectionTitles = [state.NumSections]string{"Active", "Queued", "Paused", "Completed", "Failed"}
@@ -67,6 +70,18 @@ type Main struct {
 	AddBounds image.Rectangle
 	// HeaderHeight is the header's height in px last frame.
 	HeaderHeight int
+	// FABBounds is the window rect of the floating Add button (compact
+	// layouts only; empty otherwise).
+	FABBounds image.Rectangle
+	// PillBounds is the window rect of the aggregate pill when it sits on
+	// its own line (compact layouts).
+	PillBounds image.Rectangle
+
+	compact   bool      // last frame used the compact layout
+	pressID   string    // row being pressed (long-press tracking)
+	pressAt   time.Time // when the press on pressID began
+	longFired bool      // the press already opened the menu
+	fab       widget.Clickable
 
 	add, emptyAdd, pauseAll, settings widget.Clickable
 	addW                              int // Add button width last frame
@@ -197,13 +212,23 @@ func (m *Main) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot,
 
 	sel := m.selectedView(snap)
 	wide := gtx.Constraints.Max.X >= gtx.Dp(Breakpoint)
+	m.compact = Compact(gtx)
 	m.DetailsMode = DetailsNone
+	m.FABBounds, m.PillBounds = image.Rectangle{}, image.Rectangle{}
 	if sel != nil {
 		m.DetailsMode = DetailsSheet
-		if wide {
+		switch {
+		case wide:
 			m.DetailsMode = DetailsPane
+		case m.compact:
+			m.DetailsMode = DetailsPage
 		}
 		m.details.ID = sel.ID
+	}
+	m.details.Back = m.compact
+	if m.DetailsMode == DetailsPage {
+		m.page(gtx, th, snap, now, emit)
+		return out
 	}
 
 	paint.Fill(gtx.Ops, th.Bg)
@@ -221,6 +246,14 @@ func (m *Main) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot,
 					return d
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if !m.compact || !m.PillShown {
+						return layout.Dimensions{}
+					}
+					d := m.pillLine(gtx, th, snap, top)
+					top += d.Size.Y
+					return d
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					if !snap.Offline {
 						return layout.Dimensions{}
 					}
@@ -235,7 +268,7 @@ func (m *Main) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot,
 		}),
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			if len(snap.Tasks) == 0 {
-				m.EmptyBounds = layoutEmpty(gtx, th, &m.emptyAdd)
+				m.EmptyBounds = layoutEmpty(gtx, th, &m.emptyAdd, m.compact)
 			}
 			return layout.Dimensions{Size: gtx.Constraints.Max} // full size: the stack aligns SE
 		}),
@@ -243,7 +276,17 @@ func (m *Main) Layout(gtx layout.Context, th *theme.Theme, snap *state.Snapshot,
 			if len(m.dismiss) < len(snap.Toasts) {
 				m.dismiss = make([]widget.Clickable, len(snap.Toasts))
 			}
-			return layout.UniformInset(theme.S4).Layout(gtx, components.ToastStack(th, &m.toastFades, snap.Toasts, m.dismiss))
+			in := layout.UniformInset(theme.S4)
+			if m.compact {
+				in.Bottom += fabSize + theme.S3 // toasts stack above the FAB
+			}
+			return in.Layout(gtx, components.ToastStack(th, &m.toastFades, snap.Toasts, m.dismiss))
+		}),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			if !m.compact {
+				return layout.Dimensions{}
+			}
+			return m.layoutFAB(gtx, th)
 		}),
 	)
 	m.layoutMenu(gtx, th, snap, emit)
@@ -424,6 +467,10 @@ func (m *Main) header(gtx layout.Context, th *theme.Theme, snap *state.Snapshot)
 	paint.FillShape(gtx.Ops, th.Hairline, clip.Rect{Min: image.Pt(0, h-max(1, gtx.Dp(1))), Max: gtx.Constraints.Max}.Op())
 	m.PillShown = snap.ActiveCount > 0 || snap.TotalSpeedBps > 0
 	m.HeaderHeight = h
+	if m.compact {
+		m.AddBounds = image.Rectangle{}
+		return m.compactHeader(gtx, th)
+	}
 	allIcon, allDesc := icons.Pause, "Pause all"
 	if snap.QueuePaused {
 		allIcon, allDesc = icons.Play, "Resume all"
@@ -505,6 +552,7 @@ func aggregatePill(gtx layout.Context, th *theme.Theme, snap *state.Snapshot) la
 // listItem is a flattened list entry: a section header or a task row.
 type listItem struct {
 	header bool
+	last   bool // the final item of the list
 	sec    state.Section
 	task   int // index in snap.Tasks
 }
@@ -521,6 +569,9 @@ func (m *Main) items(snap *state.Snapshot) []listItem {
 			continue
 		}
 		out = append(out, listItem{sec: v.Section, task: i})
+	}
+	if len(out) > 0 {
+		out[len(out)-1].last = true
 	}
 	return out
 }
@@ -589,12 +640,18 @@ func (m *Main) listItem(gtx layout.Context, th *theme.Theme, snap *state.Snapsho
 	}
 	v := snap.Tasks[it.task]
 	m.Row(v.ID).Optimistic = m.pending[v.ID].icon
-	return layout.Inset{Bottom: theme.S0}.Layout(gtx, components.TaskRow(th, v, m.Row(v.ID), now, v.ID == m.Selected))
+	w := m.Row(v.ID)
+	w.Compact = m.compact
+	in := layout.Inset{Bottom: theme.S0}
+	if m.compact && it.last {
+		in.Bottom = fabSize + 2*theme.S4 // the last row scrolls clear of the FAB
+	}
+	return in.Layout(gtx, components.TaskRow(th, v, w, now, v.ID == m.Selected))
 }
 
 // events converts last frame's clicks into intents.
 func (m *Main) events(gtx layout.Context, snap *state.Snapshot, emit func(Intent)) {
-	if m.add.Clicked(gtx) || m.emptyAdd.Clicked(gtx) {
+	if m.add.Clicked(gtx) || m.emptyAdd.Clicked(gtx) || m.fab.Clicked(gtx) {
 		emit(IntentOpenAdd{})
 	}
 	if m.pauseAll.Clicked(gtx) {
@@ -648,6 +705,9 @@ func (m *Main) rowEvents(gtx layout.Context, v state.TaskView, emit func(Intent)
 		if !ok {
 			break
 		}
+		if m.longFired && m.pressID == v.ID {
+			continue // the release that ends a long press is not a tap
+		}
 		// Double-click opens a finished file; otherwise a click selects.
 		if c.NumClicks >= 2 && v.State == domain.StateCompleted && v.CanOpen {
 			emit(IntentOpen{Path: v.DestPath})
@@ -656,6 +716,7 @@ func (m *Main) rowEvents(gtx layout.Context, v state.TaskView, emit func(Intent)
 		m.Selected = v.ID
 		emit(IntentSelect{ID: v.ID})
 	}
+	m.longPress(gtx, v, w)
 	if w.More.Clicked(gtx) {
 		if m.menuFor == v.ID && w.Menu.Open {
 			m.CloseMenu()
@@ -687,3 +748,115 @@ func bold(th *theme.Theme, size unit.Sp, c color.NRGBA, s string) layout.Widget 
 
 // Fill paints c over the minimum constraints (exported for dialogs).
 func Fill(gtx layout.Context, c color.NRGBA) layout.Dimensions { return fill(gtx, c) }
+
+// longPress opens v's overflow menu once its row has been held for
+// longPressFor ms (compact layouts), and schedules the frame that fires it.
+func (m *Main) longPress(gtx layout.Context, v state.TaskView, w *components.RowWidgets) {
+	if !w.Select.Pressed() {
+		if m.pressID == v.ID {
+			m.pressID, m.longFired = "", false
+		}
+		return
+	}
+	if !m.compact {
+		return
+	}
+	if m.pressID != v.ID {
+		m.pressID, m.pressAt, m.longFired = v.ID, gtx.Now, false
+	}
+	if m.longFired {
+		return
+	}
+	at := m.pressAt.Add(longPressFor * time.Millisecond)
+	if gtx.Now.Before(at) {
+		gtx.Execute(op.InvalidateCmd{At: at})
+		return
+	}
+	m.longFired = true
+	m.CloseMenu()
+	m.menuFor = v.ID
+	w.Menu.SetItems(components.RowMenuItems(v))
+	w.Menu.Open = true
+}
+
+// compactHeader is the phone header: mark and name left, settings right.
+func (m *Main) compactHeader(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	h := gtx.Constraints.Max.Y
+	layout.Inset{Left: theme.S4, Right: theme.S2}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return appMark(gtx, th) }),
+				layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
+				layout.Rigid(bold(th, theme.Title, th.Text, brand.Name)),
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
+				}),
+				layout.Rigid(components.IconButtonSize(th, &m.settings, icons.Settings, "Settings", touchButton)),
+			)
+		})
+	})
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, h)}
+}
+
+// pillLine is the compact layout's aggregate pill on its own line under
+// the header; top is its window y.
+func (m *Main) pillLine(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, top int) layout.Dimensions {
+	in := layout.Inset{Left: theme.S4, Right: theme.S4, Top: theme.S3, Bottom: theme.S1}
+	return in.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min = image.Point{}
+		d := aggregatePill(gtx, th, snap)
+		x, y := gtx.Dp(theme.S4), top+gtx.Dp(theme.S3)
+		m.PillBounds = image.Rect(x, y, x+d.Size.X, y+d.Size.Y)
+		return d
+	})
+}
+
+// layoutFAB draws the 56-dp floating Add button 16 dp from the bottom-right
+// corner of gtx's area (the stack aligns it SE).
+func (m *Main) layoutFAB(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	full := gtx.Constraints.Max
+	in := gtx.Dp(theme.S4)
+	sz := gtx.Dp(fabSize)
+	m.FABBounds = image.Rect(full.X-in-sz, full.Y-in-sz, full.X-in, full.Y-in)
+	return layout.UniformInset(theme.S4).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints = layout.Exact(image.Pt(sz, sz))
+		return components.Raised(gtx, th, fabSize/2, func(gtx layout.Context) layout.Dimensions {
+			return m.fab.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				semantic.DescriptionOp("Add download").Add(gtx.Ops)
+				pointer.CursorPointer.Add(gtx.Ops)
+				c := th.Accent
+				if m.fab.Pressed() {
+					c = theme.Mix(th.Accent, th.Text, 0.15)
+				}
+				paint.FillShape(gtx.Ops, c, clip.Ellipse{Max: image.Pt(sz, sz)}.Op(gtx.Ops))
+				layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions { return icons.Plus(gtx, 24, th.OnAccent) })
+				return layout.Dimensions{Size: image.Pt(sz, sz)}
+			})
+		})
+	})
+}
+
+// page is the compact full-window details page (back arrow in its header).
+func (m *Main) page(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time, emit func(Intent)) {
+	m.listTop = -1
+	m.HeaderHeight = 0
+	paint.Fill(gtx.Ops, th.Surface)
+	layout.Stack{Alignment: layout.S}.Layout(gtx,
+		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+			for _, i := range m.details.Layout(gtx, th, snap, now) {
+				m.handleDetails(i, emit)
+			}
+			return layout.Dimensions{Size: gtx.Constraints.Max}
+		}),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			if len(m.dismiss) < len(snap.Toasts) {
+				m.dismiss = make([]widget.Clickable, len(snap.Toasts))
+			}
+			in := layout.UniformInset(theme.S4)
+			in.Bottom += fabSize // clear the action bar
+			return in.Layout(gtx, components.ToastStack(th, &m.toastFades, snap.Toasts, m.dismiss))
+		}),
+	)
+	m.layoutMenu(gtx, th, snap, emit)
+}

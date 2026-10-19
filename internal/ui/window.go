@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image"
 	"io"
 	"log/slog"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"gioui.org/io/event"
 	"gioui.org/layout"
 	"gioui.org/op"
+	"gioui.org/op/clip"
+	"gioui.org/op/paint"
 	"gioui.org/unit"
 	"gioui.org/x/explorer"
 
@@ -111,6 +114,10 @@ type controller struct {
 
 	takeShared func() string
 	onAdd      func()
+
+	// insets are the window's system-bar and keyboard insets; the UI is
+	// laid out inside them and the bars are painted to match.
+	insets layout.Inset
 }
 
 func newController(send func(app.Command) bool, invalidate func()) *controller {
@@ -187,6 +194,7 @@ func (c *controller) pollShared(snap *state.Snapshot) {
 	}
 	if u := c.takeShared(); u != "" {
 		c.openAdd(u, snap)
+		c.add.OpenShared(u, snap.Settings.DownloadDir)
 		c.wantClip = false
 	}
 }
@@ -341,11 +349,17 @@ func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snap
 	intents := c.keyEvents(gtx, snap)
 	c.clipboardEvents(gtx, snap)
 
+	full := gtx
+	gtx, pop := c.safeArea(gtx, th)
 	if c.settingsOpen {
 		intents = append(intents, c.settings.Layout(gtx, th, &view, now)...)
 	} else {
 		intents = append(intents, c.main.Layout(gtx, th, &view, now)...)
 	}
+	pop()
+	gtx = full
+	c.add.SetInsets(c.insets)
+	c.confirm.SetInsets(c.insets)
 	switch c.dialog {
 	case dialogAdd:
 		intents = append(intents, c.add.Layout(gtx, th, &view, now)...)
@@ -365,6 +379,32 @@ func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snap
 	if len(intents) > 0 {
 		gtx.Execute(op.InvalidateCmd{})
 	}
+}
+
+// safeArea paints the system-bar bands to match the screen under them and
+// returns gtx shrunk and offset to the area inside c.insets, plus the pop
+// of that offset. With no insets (desktop) it returns gtx unchanged and
+// paints nothing.
+func (c *controller) safeArea(gtx layout.Context, th *theme.Theme) (layout.Context, func()) {
+	in := c.insets
+	if in == (layout.Inset{}) {
+		return gtx, func() {}
+	}
+	full := gtx.Constraints.Max
+	t, b := gtx.Dp(in.Top), gtx.Dp(in.Bottom)
+	l, r := gtx.Dp(in.Left), gtx.Dp(in.Right)
+	topC, botC := th.Surface, th.Bg // header above, list below
+	switch {
+	case c.settingsOpen:
+		topC, botC = th.Bg, th.Surface // page above, sticky footer below
+	case c.main.DetailsMode == screens.DetailsPage:
+		topC, botC = th.Surface, th.Surface
+	}
+	paint.FillShape(gtx.Ops, botC, clip.Rect{Max: full}.Op())
+	paint.FillShape(gtx.Ops, topC, clip.Rect{Max: image.Pt(full.X, t)}.Op())
+	st := op.Offset(image.Pt(l, t)).Push(gtx.Ops)
+	gtx.Constraints = layout.Exact(image.Pt(max(full.X-l-r, 0), max(full.Y-t-b, 0)))
+	return gtx, st.Pop
 }
 
 // wireReduceMotion makes animations follow the saved Reduce motion setting.
@@ -391,6 +431,7 @@ func RunWindow(d WindowDeps) error {
 	c.takeShared, c.onAdd = d.TakeSharedURL, d.OnAddSubmit
 	c.picker = picker
 	c.settings.Version, c.settings.DataDir = d.Version, d.DataDir
+	c.settings.Mobile = platform.Mobile
 	if d.Logger != nil {
 		c.log = d.Logger
 	}
@@ -414,6 +455,7 @@ func RunWindow(d WindowDeps) error {
 			return e.Err
 		case gioapp.FrameEvent:
 			gtx := gioapp.NewContext(&ops, e)
+			c.insets = layout.Inset{Top: e.Insets.Top, Bottom: e.Insets.Bottom, Left: e.Insets.Left, Right: e.Insets.Right}
 			snap := d.Store.Load()
 			th := light
 			if c.themeName(snap) == settings.ThemeDark {

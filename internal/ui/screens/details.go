@@ -35,6 +35,9 @@ const (
 // Details is the details panel of one task (pane or sheet; Main decides).
 type Details struct {
 	ID string
+	// Back selects the full-window page header: a back arrow on the left
+	// instead of the close button on the right.
+	Back bool
 
 	close, pause, resume, cancel, retry, restart, open, folder, copyURL, remove widget.Clickable
 	list                                                                        widget.List
@@ -109,6 +112,12 @@ func (d *Details) header(th *theme.Theme, v state.TaskView, now time.Time) layou
 		}
 		return layout.Flex{Alignment: layout.Start}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if !d.Back {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Right: theme.S2}.Layout(gtx, components.IconButtonSize(th, &d.close, icons.ArrowLeft, "Back", touchButton))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				sz := image.Pt(gtx.Dp(detailsTile), gtx.Dp(detailsTile))
 				paint.FillShape(gtx.Ops, th.SurfaceSunken, clip.UniformRRect(image.Rectangle{Max: sz}, gtx.Dp(theme.RadiusRow)).Op(gtx.Ops))
 				gtx.Constraints = layout.Exact(sz)
@@ -142,8 +151,12 @@ func (d *Details) header(th *theme.Theme, v state.TaskView, now time.Time) layou
 					}),
 				)
 			}),
-			layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
-			layout.Rigid(components.IconButton(th, &d.close, icons.Close, "Close details")),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if d.Back {
+					return layout.Dimensions{}
+				}
+				return layout.Inset{Left: theme.S2}.Layout(gtx, components.IconButton(th, &d.close, icons.Close, "Close details"))
+			}),
 		)
 	}
 }
@@ -268,6 +281,14 @@ func (d *Details) actions(th *theme.Theme, v state.TaskView) layout.Widget {
 	add(v.CanPause, &d.pause, "Pause", components.Secondary, icons.Pause)
 	add(v.CanRestart, &d.restart, "Restart", components.Secondary, icons.Restart)
 	add(v.CanCancel, &d.cancel, "Cancel", components.Secondary, icons.Close)
+	folderIcon, folderDesc := icons.Folder, "Open folder"
+	iconSize := unit.Dp(28)
+	if d.Back {
+		iconSize = touchButton // touch targets on the full-window page
+	}
+	if platform.Mobile {
+		folderIcon, folderDesc = icons.Share, "Share"
+	}
 	return func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
@@ -275,9 +296,9 @@ func (d *Details) actions(th *theme.Theme, v state.TaskView) layout.Widget {
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
 			}),
-			layout.Rigid(components.IconButton(th, &d.folder, icons.Folder, "Open folder")),
-			layout.Rigid(components.IconButton(th, &d.copyURL, icons.Copy, "Copy URL")),
-			layout.Rigid(components.IconButton(th, &d.remove, icons.Trash, "Remove…")),
+			layout.Rigid(components.IconButtonSize(th, &d.folder, folderIcon, folderDesc, iconSize)),
+			layout.Rigid(components.IconButtonSize(th, &d.copyURL, icons.Copy, "Copy URL", iconSize)),
+			layout.Rigid(components.IconButtonSize(th, &d.remove, icons.Trash, "Remove…", iconSize)),
 		)
 	}
 }

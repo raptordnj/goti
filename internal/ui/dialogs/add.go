@@ -40,11 +40,15 @@ type Add struct {
 	add, cancel, change widget.Clickable
 	shell               components.DialogState
 	pasted              string // prefill, for the paste-detected hint
+	hint                string // shown under the URL while it holds pasted
 	focusPending        bool
 }
 
 // PastedHint is shown under the URL field while it holds the prefilled link.
 const PastedHint = "Link detected from the clipboard"
+
+// SharedHint replaces PastedHint when the link was shared from another app.
+const SharedHint = "Link shared from another app"
 
 // Open resets the dialog with a prefilled URL and default folder.
 func (a *Add) Open(prefill, defaultDir string) {
@@ -54,9 +58,19 @@ func (a *Add) Open(prefill, defaultDir string) {
 	a.name.SetText("")
 	a.destDir = defaultDir
 	a.urlErr, a.submitErr = "", ""
-	a.shell = components.DialogState{}
+	a.shell = components.DialogState{Insets: a.shell.Insets}
 	a.pasted, a.focusPending = prefill, true
+	a.hint = PastedHint
 }
+
+// OpenShared is Open for a link shared into the app from another app.
+func (a *Add) OpenShared(prefill, defaultDir string) {
+	a.Open(prefill, defaultDir)
+	a.hint = SharedHint
+}
+
+// Hint is the provenance hint shown under the prefilled URL.
+func (a *Add) Hint() string { return a.hint }
 
 // SetDestDir sets the destination folder (folder picker result).
 func (a *Add) SetDestDir(path string) { a.destDir = path }
@@ -112,7 +126,7 @@ func (a *Add) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot, _ t
 		if a.urlErr != "" || a.pasted == "" || a.url.Text() != a.pasted {
 			return layout.Dimensions{}
 		}
-		return layout.Inset{Top: theme.S1}.Layout(gtx, screens.Label(th, theme.Caption, th.TextMuted, PastedHint))
+		return layout.Inset{Top: theme.S1}.Layout(gtx, screens.Label(th, theme.Caption, th.TextMuted, a.hint))
 	}
 	body := screens.Column(theme.S4,
 		screens.Column(0, components.TextField(th, &a.url, "URL", "https://example.com/file.iso", a.urlErr), recordIf(a.urlErr), urlHint),
@@ -135,6 +149,7 @@ func (a *Add) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot, _ t
 	actions := screens.Row(components.Button(th, &a.cancel, "Cancel", components.Secondary),
 		components.Button(th, &a.add, "Add", components.Primary, components.WithIcon(icons.Plus)))
 	a.shell.Fade.Show(true)
+	a.shell.Sheet = screens.Compact(gtx)
 	modal(gtx, th, components.Dialog(th, &a.shell, "Add download", body, actions))
 	return out
 }
@@ -178,3 +193,6 @@ func (a *Add) HasFocus(gtx layout.Context) bool {
 
 // URLEmpty reports whether the URL field is empty.
 func (a *Add) URLEmpty() bool { return strings.TrimSpace(a.url.Text()) == "" }
+
+// SetInsets keeps the dialog inside the window's system insets.
+func (a *Add) SetInsets(in layout.Inset) { a.shell.Insets = in }

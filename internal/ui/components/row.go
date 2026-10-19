@@ -28,6 +28,10 @@ import (
 // Row geometry.
 const (
 	rowHeight unit.Dp = 56
+	// compactRowHeight is the touch row height in compact (phone) layouts.
+	compactRowHeight unit.Dp = 64
+	// touchBox is the trailing button size in compact layouts.
+	touchBox  unit.Dp = 40
 	tileSize  unit.Dp = 32
 	actionBox unit.Dp = 28
 )
@@ -51,19 +55,29 @@ type RowWidgets struct {
 	// "retry") to show in place of the state's own while a command is in
 	// flight; the owner clears it when the task changes or the command fails.
 	Optimistic string
+	// Compact selects the touch layout: 64-dp rows, 40-dp trailing
+	// buttons and the more button always shown.
+	Compact bool
 
 	hot, sel anim.Value
 }
 
 // RowMenuItems lists the overflow menu of v; CanX-gated entries appear only
 // when allowed.
-func RowMenuItems(v state.TaskView) []MenuItem {
+func RowMenuItems(v state.TaskView) []MenuItem { return rowMenuItems(v, platform.Mobile) }
+
+// rowMenuItems is RowMenuItems; on mobile "Show in folder" becomes "Share".
+func rowMenuItems(v state.TaskView, mobile bool) []MenuItem {
+	folder := MenuItem{Key: "folder", Label: "Show in folder", Icon: icons.Folder}
+	if mobile {
+		folder.Label, folder.Icon = "Share", icons.Share
+	}
 	var out []MenuItem
 	if v.CanOpen {
 		out = append(out, MenuItem{Key: "open", Label: "Open file", Icon: icons.File})
 	}
 	out = append(out,
-		MenuItem{Key: "folder", Label: "Show in folder", Icon: icons.Folder},
+		folder,
 		MenuItem{Key: "copy-url", Label: "Copy link", Icon: icons.Copy},
 		MenuItem{Key: "copy-path", Label: "Copy path", Icon: icons.Copy},
 	)
@@ -74,6 +88,20 @@ func RowMenuItems(v state.TaskView) []MenuItem {
 		out = append(out, MenuItem{Key: "cancel", Label: "Cancel", Icon: icons.Close})
 	}
 	return append(out, MenuItem{Key: "remove", Label: "Remove…", Icon: icons.Trash, Danger: true})
+}
+
+func (w *RowWidgets) height() unit.Dp {
+	if w.Compact {
+		return compactRowHeight
+	}
+	return rowHeight
+}
+
+func (w *RowWidgets) box() unit.Dp {
+	if w.Compact {
+		return touchBox
+	}
+	return actionBox
 }
 
 type rowButton struct {
@@ -156,7 +184,7 @@ func metaSlots(v state.TaskView) []string {
 func TaskRow(th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time, selected bool) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		w.Shown = w.Shown[:0]
-		h := gtx.Dp(rowHeight)
+		h := gtx.Dp(w.height())
 		gtx.Constraints = layout.Exact(image.Pt(gtx.Constraints.Max.X, h))
 		return FocusRing(gtx, th, &w.Select, theme.RadiusRow, func(gtx layout.Context) layout.Dimensions {
 			return w.Select.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -172,7 +200,7 @@ func TaskRow(th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time, se
 				hot, sel := w.hot.Get(gtx), w.sel.Get(gtx)
 				sz := gtx.Constraints.Min
 				rowBg(gtx, th, sz, hot, sel)
-				showMore := hovered || selected || focused
+				showMore := hovered || selected || focused || w.Compact
 				return layout.Inset{Left: theme.S3, Right: theme.S3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return rowBody(gtx, th, v, w, now, showMore)
 				})
@@ -199,10 +227,10 @@ func rowBg(gtx layout.Context, th *theme.Theme, sz image.Point, hot, sel float32
 
 func rowBody(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidgets, now time.Time, showMore bool) layout.Dimensions {
 	rowW := gtx.Constraints.Max.X + gtx.Dp(theme.S3)*2
-	box := gtx.Dp(actionBox)
+	box := gtx.Dp(w.box())
 	// The more button's slot is the right-most one; its bottom-right corner
 	// anchors the overflow menu.
-	w.MoreAt = image.Pt(rowW-gtx.Dp(theme.S3), gtx.Dp(rowHeight)/2+box/2)
+	w.MoreAt = image.Pt(rowW-gtx.Dp(theme.S3), gtx.Dp(w.height())/2+box/2)
 	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return fileTile(gtx, th, v.FileName) }),
 		layout.Rigid(layout.Spacer{Width: theme.S3}.Layout),
@@ -296,14 +324,14 @@ func numSlot(gtx layout.Context, l material.LabelStyle, ref string) layout.Dimen
 }
 
 func trailing(gtx layout.Context, th *theme.Theme, v state.TaskView, w *RowWidgets, showMore bool) layout.Dimensions {
-	box := gtx.Dp(actionBox)
+	box := gtx.Dp(w.box())
 	slot := func(b *rowButton) layout.FlexChild {
 		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			if b == nil {
 				return layout.Dimensions{Size: image.Pt(box, box)}
 			}
 			w.Shown = append(w.Shown, b.name)
-			return IconButton(th, b.c, b.icon, b.desc)(gtx)
+			return IconButtonSize(th, b.c, b.icon, b.desc, w.box())(gtx)
 		})
 	}
 	var more *rowButton

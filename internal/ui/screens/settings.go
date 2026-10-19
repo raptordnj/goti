@@ -47,6 +47,11 @@ var (
 type Settings struct {
 	// Version and DataDir are shown in the About group.
 	Version, DataDir string
+	// Mobile hides the desktop-only rows: download folder (the app's
+	// private folder is fixed) and close to tray.
+	Mobile bool
+
+	compact bool // last layout was compact: stacked rows and footer
 
 	base                                     settings.Settings
 	dir, globalLimit, perLimit               widget.Editor
@@ -150,6 +155,7 @@ func (st *Settings) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapsho
 	}
 
 	gtx.Constraints.Min = gtx.Constraints.Max
+	st.compact = Compact(gtx)
 	paint := func(gtx layout.Context) layout.Dimensions { return fill(gtx, th.Bg) }
 	layout.Background{}.Layout(gtx, paint, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -202,6 +208,9 @@ func (st *Settings) footer(th *theme.Theme) layout.Widget {
 			return layout.Dimensions{Size: sz}
 		}, func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: theme.S3, Bottom: theme.S3}.Layout(gtx, centred(func(gtx layout.Context) layout.Dimensions {
+				if st.compact {
+					return st.compactFooter(gtx, th)
+				}
 				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 						if len(st.errs) == 0 {
@@ -218,6 +227,24 @@ func (st *Settings) footer(th *theme.Theme) layout.Widget {
 	}
 }
 
+// compactFooter stacks the note over right-aligned buttons.
+func (st *Settings) compactFooter(gtx layout.Context, th *theme.Theme) layout.Dimensions {
+	note := Text(th, theme.Caption, th.TextMuted, EngineNote, 2)
+	if len(st.errs) > 0 {
+		note = Text(th, theme.Caption, th.Error, "Fix the highlighted fields to save.", 2)
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(note),
+		layout.Rigid(layout.Spacer{Height: theme.S2}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.X = gtx.Constraints.Max.X
+			return layout.E.Layout(gtx, Row(
+				components.Button(th, &st.cancel, "Cancel", components.Secondary),
+				components.Button(th, &st.save, "Save", components.Primary)))
+		}),
+	)
+}
+
 func paintRect(gtx layout.Context, c color.NRGBA, r image.Rectangle) {
 	paint.FillShape(gtx.Ops, c, clip.Rect(r).Op())
 }
@@ -227,10 +254,13 @@ func paintRect(gtx layout.Context, c color.NRGBA, r image.Rectangle) {
 type setting struct {
 	label, help, err string
 	control          layout.Widget
+	// stack puts the control under the text in compact layouts (wide
+	// controls such as segmented pickers).
+	stack bool
 }
 
 // settingsGroup draws an uppercase caption title over a card of rows.
-func settingsGroup(th *theme.Theme, title string, rows ...setting) layout.Widget {
+func settingsGroup(th *theme.Theme, compact bool, title string, rows ...setting) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -247,7 +277,7 @@ func settingsGroup(th *theme.Theme, title string, rows ...setting) layout.Widget
 								return layout.Dimensions{Size: image.Pt(w, gtx.Dp(1))}
 							}))
 						}
-						ch = append(ch, layout.Rigid(settingRow(th, r)))
+						ch = append(ch, layout.Rigid(settingRow(th, r, compact && r.stack)))
 					}
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, ch...)
 				})
@@ -269,7 +299,7 @@ func panel(gtx layout.Context, th *theme.Theme, w layout.Widget) layout.Dimensio
 	}, w)
 }
 
-func settingRow(th *theme.Theme, r setting) layout.Widget {
+func settingRow(th *theme.Theme, r setting, stacked bool) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
 		return layout.Inset{Left: theme.S4, Right: theme.S4, Top: theme.S3, Bottom: theme.S3}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -279,6 +309,9 @@ func settingRow(th *theme.Theme, r setting) layout.Widget {
 			}
 			if r.err != "" {
 				left = append(left, errLine(th, r.err))
+			}
+			if stacked {
+				return Column(theme.S2, Column(theme.S0, left...), r.control)(gtx)
 			}
 			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 				layout.Flexed(1, Column(theme.S0, left...)),
@@ -317,36 +350,44 @@ func (st *Settings) groups(th *theme.Theme) []layout.Widget {
 	unitField := func(e *widget.Editor, field string) layout.Widget {
 		return sized(140, components.UnitField(th, e, "KB/s", "0", st.errs[field] != ""))
 	}
+	c := st.compact
+	var downloads []setting
+	if !st.Mobile {
+		downloads = append(downloads, setting{"Download folder", "Where new downloads are saved", st.errs["DownloadDir"],
+			func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(sized(220, components.TextField(th, &st.dir, "", "Folder path", ""))),
+					layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
+					layout.Rigid(components.Button(th, &st.change, "Change…", components.Secondary, components.Small())),
+				)
+			}, false})
+	}
+	downloads = append(downloads,
+		setting{"Simultaneous downloads", "How many files download at once (1–10)", st.errs["MaxSimultaneous"],
+			components.Stepper(th, &st.maxSim, 1, 10), false},
+		setting{"When the file exists", "What to do if a file with the same name is already there", st.errs["ExistingPolicy"],
+			components.Segmented(th, &st.policy, policyOpts), true},
+	)
+	behaviour := []setting{
+		{"Resume downloads on startup", "Continue unfinished downloads when " + brand.Name + " opens", "", switchCtl(th, &st.resumeOnStart), false},
+	}
+	if !st.Mobile {
+		behaviour = append(behaviour, setting{"Close to tray", "Keep running in the system tray when the window closes", "", switchCtl(th, &st.closeToTray), false})
+	}
 	return []layout.Widget{
 		bold(th, theme.Display, th.Text, "Settings"),
-		settingsGroup(th, "Downloads",
-			setting{"Download folder", "Where new downloads are saved", st.errs["DownloadDir"],
-				func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-						layout.Rigid(sized(220, components.TextField(th, &st.dir, "", "Folder path", ""))),
-						layout.Rigid(layout.Spacer{Width: theme.S2}.Layout),
-						layout.Rigid(components.Button(th, &st.change, "Change…", components.Secondary, components.Small())),
-					)
-				}},
-			setting{"Simultaneous downloads", "How many files download at once (1–10)", st.errs["MaxSimultaneous"],
-				components.Stepper(th, &st.maxSim, 1, 10)},
-			setting{"When the file exists", "What to do if a file with the same name is already there", st.errs["ExistingPolicy"],
-				components.Segmented(th, &st.policy, policyOpts)},
-		),
-		settingsGroup(th, "Network",
+		settingsGroup(th, c, "Downloads", downloads...),
+		settingsGroup(th, c, "Network",
 			setting{"Connections per download", "Parallel connections for one file (1–16)", st.errs["MaxConnections"],
-				components.Stepper(th, &st.maxConn, 1, 16)},
-			setting{"Global speed limit", LimitHelp, st.errs["GlobalRateLimit"], unitField(&st.globalLimit, "GlobalRateLimit")},
-			setting{"Per-download limit", LimitHelp, st.errs["PerDownloadLimit"], unitField(&st.perLimit, "PerDownloadLimit")},
+				components.Stepper(th, &st.maxConn, 1, 16), false},
+			setting{"Global speed limit", LimitHelp, st.errs["GlobalRateLimit"], unitField(&st.globalLimit, "GlobalRateLimit"), false},
+			setting{"Per-download limit", LimitHelp, st.errs["PerDownloadLimit"], unitField(&st.perLimit, "PerDownloadLimit"), false},
 		),
-		settingsGroup(th, "Appearance",
-			setting{"Theme", "Preview applies immediately", "", components.Segmented(th, &st.theme, themeOpts)},
-			setting{"Reduce motion", "Turn off animations and transitions", "", switchCtl(th, &st.reduceMotion)},
+		settingsGroup(th, c, "Appearance",
+			setting{"Theme", "Preview applies immediately", "", components.Segmented(th, &st.theme, themeOpts), true},
+			setting{"Reduce motion", "Turn off animations and transitions", "", switchCtl(th, &st.reduceMotion), false},
 		),
-		settingsGroup(th, "Behaviour",
-			setting{"Resume downloads on startup", "Continue unfinished downloads when " + brand.Name + " opens", "", switchCtl(th, &st.resumeOnStart)},
-			setting{"Close to tray", "Keep running in the system tray when the window closes", "", switchCtl(th, &st.closeToTray)},
-		),
+		settingsGroup(th, c, "Behaviour", behaviour...),
 		st.about(th),
 	}
 }
