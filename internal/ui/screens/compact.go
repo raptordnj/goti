@@ -19,3 +19,6 @@ const (
 	longPressFor         = 500 // ms
 	touchButton  unit.Dp = 40
 )
+
+// IsCompact reports whether the last layout of m was compact.
+func (m *Main) IsCompact() bool { return m.compact }

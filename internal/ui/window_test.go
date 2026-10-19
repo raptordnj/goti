@@ -353,3 +353,21 @@ func TestSafeAreaInsets(t *testing.T) {
 		t.Fatalf("constraints %v want %v", g.Constraints, want)
 	}
 }
+
+func TestAddOnPhoneRevealsWithoutOpeningDetails(t *testing.T) {
+	c, _ := newCtl(true)
+	now := time.Unix(1e6, 0)
+	var r input.Router
+	gtx := layout.Context{Ops: new(op.Ops), Constraints: layout.Exact(image.Pt(360, 780)),
+		Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Now: now, Source: r.Source()}
+	old := state.TaskView{ID: "a", CreatedAt: now.Add(-time.Hour)}
+	snap := &state.Snapshot{AddResultSeq: 1, Tasks: []state.TaskView{old}}
+	c.frame(gtx, theme.New(theme.Light()), snap, now)
+	c.handle(screens.IntentOpenAdd{Prefill: "https://a/b"}, snap, now)
+	c.handle(screens.IntentCommand{Cmd: app.AddDownload{URL: "https://a/b"}}, snap, now)
+	nw := state.TaskView{ID: "b", CreatedAt: now}
+	c.afterResults(&state.Snapshot{AddResultSeq: 2, Tasks: []state.TaskView{old, nw}})
+	if c.main.Selected != "" || c.main.ScrollTarget() != "b" {
+		t.Fatalf("selected %q scroll %q", c.main.Selected, c.main.ScrollTarget())
+	}
+}

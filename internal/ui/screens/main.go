@@ -307,6 +307,7 @@ func (m *Main) layoutMenu(gtx layout.Context, th *theme.Theme, snap *state.Snaps
 		return
 	}
 	w.Menu.SetItems(components.RowMenuItems(*v))
+	w.Menu.Touch = m.compact
 	w.Menu.Anchor = image.Pt(gtx.Dp(theme.S4)+w.MoreAt.X, y+w.MoreAt.Y)
 	picked := w.Menu.Layout(gtx, th)
 	if !w.Menu.Open {

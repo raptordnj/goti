@@ -34,6 +34,10 @@ func validURL(s string) error {
 
 // Add is the Add download dialog.
 type Add struct {
+	// Mobile hides the destination row: on Android downloads land in the
+	// app's folder and are published to Downloads.
+	Mobile bool
+
 	url, name           widget.Editor
 	destDir             string
 	urlErr, submitErr   string
@@ -128,12 +132,16 @@ func (a *Add) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot, _ t
 		}
 		return layout.Inset{Top: theme.S1}.Layout(gtx, screens.Label(th, theme.Caption, th.TextMuted, a.hint))
 	}
-	body := screens.Column(theme.S4,
+	fields := []layout.Widget{
 		screens.Column(0, components.TextField(th, &a.url, "URL", "https://example.com/file.iso", a.urlErr), recordIf(a.urlErr), urlHint),
-		screens.Column(theme.S1+2,
+	}
+	if !a.Mobile {
+		fields = append(fields, screens.Column(theme.S1+2,
 			screens.Label(th, theme.Caption, th.TextMuted, "Save to"),
 			a.destRow(th),
-		),
+		))
+	}
+	fields = append(fields,
 		components.TextField(th, &a.name, "File name (optional)", "Detected from the server", ""),
 		func(gtx layout.Context) layout.Dimensions {
 			if a.submitErr == "" {
@@ -146,6 +154,7 @@ func (a *Add) Layout(gtx layout.Context, th *theme.Theme, _ *state.Snapshot, _ t
 			)
 		},
 	)
+	body := screens.Column(theme.S4, fields...)
 	actions := screens.Row(components.Button(th, &a.cancel, "Cancel", components.Secondary),
 		components.Button(th, &a.add, "Add", components.Primary, components.WithIcon(icons.Plus)))
 	a.shell.Fade.Show(true)

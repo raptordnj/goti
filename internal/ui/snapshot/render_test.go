@@ -94,6 +94,7 @@ func phoneScenes() []scene {
 		{"busy", Busy, mainScene("", nil)},
 		{"details", Busy, mainScene("1", nil)},
 		{"add", Busy, mainScene("", func(a *dialogs.Add, _ *dialogs.Confirm, s *state.Snapshot) func(layout.Context, *theme.Theme, *state.Snapshot) {
+			a.Mobile = true
 			a.OpenShared("https://example.com/big.iso", s.Settings.DownloadDir)
 			return func(g layout.Context, th *theme.Theme, s *state.Snapshot) { a.Layout(g, th, s, Now) }
 		})},

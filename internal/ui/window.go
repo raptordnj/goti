@@ -313,7 +313,9 @@ func (c *controller) selectNewTask(snap *state.Snapshot) {
 		return
 	}
 	c.selectNew, c.addKnown = false, nil
-	c.main.Selected = best.ID
+	if !c.main.IsCompact() { // on a phone, details would cover the list
+		c.main.Selected = best.ID
+	}
 	c.main.ScrollTo(best.ID)
 }
 
@@ -440,7 +442,7 @@ func RunWindow(d WindowDeps) error {
 	c.takeShared, c.onAdd = d.TakeSharedURL, d.OnAddSubmit
 	c.picker = picker
 	c.settings.Version, c.settings.DataDir = d.Version, d.DataDir
-	c.settings.Mobile = platform.Mobile
+	c.settings.Mobile, c.add.Mobile = platform.Mobile, platform.Mobile
 	if d.Logger != nil {
 		c.log = d.Logger
 	}
@@ -464,7 +466,10 @@ func RunWindow(d WindowDeps) error {
 			}
 			return e.Err
 		case gioapp.FrameEvent:
-			gtx := gioapp.NewContext(&ops, e)
+			// Not gioapp.NewContext: it offsets ops by the insets itself;
+			// safeArea applies them so bars and scrims can be painted.
+			ops.Reset()
+			gtx := layout.Context{Ops: &ops, Now: e.Now, Source: e.Source, Metric: e.Metric, Constraints: layout.Exact(e.Size)}
 			c.insets = layout.Inset{Top: e.Insets.Top, Bottom: e.Insets.Bottom, Left: e.Insets.Left, Right: e.Insets.Right}
 			snap := d.Store.Load()
 			th := light

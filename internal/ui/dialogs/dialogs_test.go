@@ -219,3 +219,14 @@ func TestAddBottomSheetCompact(t *testing.T) {
 		t.Fatalf("desktop card %v", c)
 	}
 }
+
+func TestAddHidesSaveToOnMobile(t *testing.T) {
+	recordTexts(t)
+	a := Add{Mobile: true}
+	a.Open("", "/data/private")
+	hs := newHarness(360, 780)
+	hs.frame(func(gtx layout.Context) { a.Layout(gtx, th, &state.Snapshot{}, now) })
+	if hasText(t, "Save to") || hasText(t, "/data/private") {
+		t.Fatalf("mobile Add shows the folder row: %v", screens.RecordedTexts())
+	}
+}
