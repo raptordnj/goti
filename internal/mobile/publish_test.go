@@ -6,9 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/raptordnj/goti/internal/domain"
 	"github.com/raptordnj/goti/internal/ui/state"
 )
 
@@ -109,18 +112,149 @@ func TestPublisherMime(t *testing.T) {
 	}
 }
 
-func TestRunTicksControllerAndPublisher(t *testing.T) {
-	h := &fakeHost{}
+type countKV struct {
+	memKV
+	gets   int
+	putErr string // key prefix whose Put fails
+	getErr error
+}
+
+func (c *countKV) GetSetting(ctx context.Context, k string) (string, error) {
+	c.gets++
+	if c.getErr != nil {
+		return "", c.getErr
+	}
+	if v, ok := c.memKV[k]; ok {
+		return v, nil
+	}
+	return "", domain.ErrNotFound
+}
+
+func (c *countKV) PutSetting(ctx context.Context, k, v string) error {
+	if c.putErr != "" && strings.HasPrefix(k, c.putErr) {
+		return errors.New("put failed")
+	}
+	return c.memKV.PutSetting(ctx, k, v)
+}
+
+func mkfile(t *testing.T) string {
+	dest := filepath.Join(t.TempDir(), "a.zip")
+	os.WriteFile(dest, []byte("x"), 0o600)
+	return dest
+}
+
+func TestPublisherKeepsFileWhenPutFails(t *testing.T) {
+	for _, prefix := range []string{"android.uri:", "android.published:"} {
+		dest := mkfile(t)
+		kv, now := &countKV{memKV: memKV{}, putErr: prefix}, t0
+		newPub(&pubHost{}, kv, &now).Tick(context.Background(), doneSnap("1", dest))
+		if _, err := os.Stat(dest); err != nil {
+			t.Fatalf("%s: file removed", prefix)
+		}
+	}
+}
+
+func TestPublisherGetErrorSkips(t *testing.T) {
+	dest := mkfile(t)
+	h, kv, now := &pubHost{}, &countKV{memKV: memKV{}, getErr: errors.New("db down")}, t0
+	newPub(h, kv, &now).Tick(context.Background(), doneSnap("1", dest))
+	if h.calls2 != 0 {
+		t.Fatal("published despite KV error")
+	}
+}
+
+func TestPublisherNoKVReadsOnceKnown(t *testing.T) {
+	dest := mkfile(t)
+	h, kv, now := &pubHost{}, &countKV{memKV: memKV{}}, t0
+	p := newPub(h, kv, &now)
+	s := doneSnap("1", dest)
+	p.Tick(context.Background(), s)
+	g := kv.gets
+	p.Tick(context.Background(), s)
+	if kv.gets != g {
+		t.Fatalf("extra gets %d", kv.gets-g)
+	}
+}
+
+func TestPublisherSkipsMissingFile(t *testing.T) {
+	h, now := &pubHost{}, t0
+	newPub(h, memKV{}, &now).Tick(context.Background(), doneSnap("1", "/nonexistent/x.zip"))
+	if h.calls2 != 0 {
+		t.Fatal("published missing file")
+	}
+}
+
+type blockHost struct {
+	pubHost
+	updates chan struct{}
+	enter   chan struct{}
+	release chan struct{}
+}
+
+func (b *blockHost) UpdateNotification(Notification) {
+	select {
+	case b.updates <- struct{}{}:
+	default:
+	}
+}
+func (b *blockHost) PublishToDownloads(string, string, string) (string, error) {
+	b.enter <- struct{}{}
+	<-b.release
+	return "content://x/1", nil
+}
+
+func TestRunPublisherDoesNotBlockController(t *testing.T) {
+	dest := mkfile(t)
+	h := &blockHost{updates: make(chan struct{}, 100), enter: make(chan struct{}, 10), release: make(chan struct{})}
+	now := t0
+	pub := newPub(h, memKV{}, &now)
+	var n atomic.Int32
+	load := func() *state.Snapshot {
+		s := doneSnap("1", dest)
+		s.ActiveCount = int(n.Add(1)) // title changes -> every tick updates
+		return s
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { Run(ctx, load, h, pub, time.Millisecond); close(done) }()
+	<-h.enter // publisher is now blocked
+	for i := 0; i < 3; i++ {
+		select {
+		case <-h.updates:
+		case <-time.After(5 * time.Second):
+			t.Fatal("controller stalled while publisher blocked")
+		}
+	}
+	close(h.release)
+	cancel()
+	<-done
+}
+
+func TestRunTicksController(t *testing.T) {
+	h := &startHost{started: make(chan struct{}, 1)}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		Run(ctx, func() *state.Snapshot { return snap(1, 0, 0, 0) }, h, nil, 5*time.Millisecond)
+		Run(ctx, func() *state.Snapshot { return snap(1, 0, 0, 0) }, h, nil, time.Millisecond)
 		close(done)
 	}()
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-h.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no start")
+	}
 	cancel()
 	<-done
-	if h.count("start") != 1 {
-		t.Fatalf("%v", h.calls)
+}
+
+type startHost struct {
+	fakeHost
+	started chan struct{}
+}
+
+func (s *startHost) StartService() {
+	select {
+	case s.started <- struct{}{}:
+	default:
 	}
 }

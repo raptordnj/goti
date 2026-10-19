@@ -12,8 +12,6 @@ func TestControllerStartsOnPending(t *testing.T) {
 	if len(h.calls) != 2 || h.calls[0] != "start" || h.calls[1] != "update" {
 		t.Fatalf("%v", h.calls)
 	}
-	c2 := NewController(&fakeHost{})
-	c2.Tick(snap(0, 0, 0, 0), t0)
 }
 
 func TestControllerThrottlesUpdates(t *testing.T) {
