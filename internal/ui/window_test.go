@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	gioapp "gioui.org/app"
 	"gioui.org/io/event"
 	"gioui.org/io/input"
 	"gioui.org/io/key"
@@ -369,5 +370,28 @@ func TestAddOnPhoneRevealsWithoutOpeningDetails(t *testing.T) {
 	c.afterResults(&state.Snapshot{AddResultSeq: 2, Tasks: []state.TaskView{old, nw}})
 	if c.main.Selected != "" || c.main.ScrollTarget() != "b" {
 		t.Fatalf("selected %q scroll %q", c.main.Selected, c.main.ScrollTarget())
+	}
+}
+
+type viewEv struct{ v uintptr }
+
+func (viewEv) ImplementsEvent() {}
+
+func TestViewDetached(t *testing.T) {
+	view := func(ev event.Event) (uintptr, bool) {
+		e, ok := ev.(viewEv)
+		return e.v, ok
+	}
+	if !viewDetached(viewEv{0}, view) {
+		t.Error("view 0 must count as detached")
+	}
+	if viewDetached(viewEv{42}, view) {
+		t.Error("attached view counted as detached")
+	}
+	if viewDetached(gioapp.FrameEvent{}, view) {
+		t.Error("other events are not detaches")
+	}
+	if viewDetached(viewEv{0}, androidView) {
+		t.Error("off Android nothing is a detach")
 	}
 }

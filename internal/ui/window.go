@@ -485,6 +485,35 @@ func RunWindow(d WindowDeps) error {
 					w.Option(gioapp.StatusColor(top), gioapp.NavigationColor(bot))
 				}
 			}
+		default:
+			if viewDetached(ev, androidView) {
+				// Android destroyed the activity (Back from a task started
+				// by a share, swipe from recents): Gio sends no
+				// DestroyEvent and keeps this window, but the next
+				// activity's GioView blocks the main thread until a new
+				// Window is created. End here so cmd/goti respawns one,
+				// and keep draining this window so Gio never blocks on it.
+				go drain(w)
+				if d.OnClosed != nil {
+					d.OnClosed()
+				}
+				return nil
+			}
+		}
+	}
+}
+
+// viewDetached reports whether ev says the window lost its Android view.
+func viewDetached(ev event.Event, view func(event.Event) (uintptr, bool)) bool {
+	v, ok := view(ev)
+	return ok && v == 0
+}
+
+// drain consumes a retired window's events until it is destroyed.
+func drain(w *gioapp.Window) {
+	for {
+		if _, ok := w.Event().(gioapp.DestroyEvent); ok {
+			return
 		}
 	}
 }
