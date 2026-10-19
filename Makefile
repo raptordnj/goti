@@ -1,4 +1,4 @@
-.PHONY: android-vet package-linux test race lint fuzz bench build cross gui screenshots
+.PHONY: android-aar apk apk-debug android-vet package-linux test race lint fuzz bench build cross gui screenshots
 
 test:
 	go test -timeout 30m ./...
@@ -49,3 +49,16 @@ ANDROID_NDK_ROOT ?= $(lastword $(sort $(wildcard $(ANDROID_HOME)/ndk/*)))
 android-vet:
 	@test -x "$(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang" || { echo "android-vet: NDK not found; set ANDROID_HOME (or ANDROID_NDK_ROOT)" >&2; exit 1; }
 	GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang go vet ./...
+
+GOGIO ?= gogio
+ANDROID_SDK_ROOT ?= $(ANDROID_HOME)
+export ANDROID_SDK_ROOT ANDROID_NDK_ROOT
+
+android-aar:
+	$(GOGIO) -target android -buildmode archive -arch arm64,arm,amd64 -appid io.github.raptordnj.goti.gio -minsdk 26 -ldflags "-X main.version=$(VERSION)" -o android/app/libs/goti.aar ./cmd/goti
+
+apk-debug: android-aar
+	cd android && ./gradlew assembleDebug
+
+apk: android-aar
+	cd android && ./gradlew assembleRelease -PversionName=$(VERSION) -PversionCode=$$(../scripts/android-version-code.sh $(VERSION))

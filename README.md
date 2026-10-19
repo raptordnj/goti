@@ -25,6 +25,7 @@ Download the file for your platform from the
 | Other Linux (glibc 2.35+) | `goti_<ver>_linux_<arch>.tar.gz` | extract, then `./install-linux.sh` (installs for the current user) |
 | Windows 10/11 | `Goti_<ver>_windows_amd64_setup.exe` | run the installer (a portable `.zip` is also provided) |
 | macOS 11+ | `Goti_<ver>_macos_<arch>.dmg` | open the dmg, drag Goti to Applications |
+| Android 8.0+ | `Goti_<ver>_android_universal.apk` | open the APK on the phone and allow installs from your browser or file manager |
 
 Linux packages are built for `amd64` and `arm64`; macOS for `arm64` (Apple
 silicon) and `amd64` (Intel). Each package contains the GUI (`goti`) and the
@@ -34,6 +35,8 @@ The builds are not code-signed by a paid certificate:
 
 - Windows: SmartScreen may say "Windows protected your PC". Click
   **More info**, then **Run anyway**.
+- Android: the APK is signed with the project's own release key (not a Play Store
+  build). Updates install over earlier versions because the key stays the same.
 - macOS: the app is ad-hoc signed but not notarized. On first launch,
   right-click Goti in Applications and choose **Open**, then **Open** again.
 
@@ -343,8 +346,22 @@ git tag vX.Y.Z && git push origin vX.Y.Z
 
 GitHub Actions runs only on version tags: the tag push runs the checks (gofmt, vet, race tests),
 builds every platform (Linux deb/rpm/Arch/tar.gz for amd64 and arm64, Windows NSIS installer and
-zip, macOS dmg for Apple Silicon and Intel) and publishes them in one GitHub Release with
+zip, macOS dmg for Apple Silicon and Intel, a signed universal Android APK) and publishes them in one GitHub Release with
 `SHA256SUMS`. A tag containing `-` (for example `v1.2.0-rc.1`) is published as a pre-release.
+
+### Android builds
+
+Needs the Android SDK (`ANDROID_HOME`), NDK 27, JDK 21 and `gogio`
+(`go install gioui.org/cmd/gogio@v0.10.3`):
+
+```sh
+make apk-debug                               # android/app/build/outputs/apk/debug/app-debug.apk
+scripts/package-android.sh 0.2.0 dist        # signed release APK
+```
+
+`package-android.sh` reads the signing key from `ANDROID_KEYSTORE_B64`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`;
+CI takes them from repository secrets of the same names.
 
 ## Local smoke benchmarks
 
