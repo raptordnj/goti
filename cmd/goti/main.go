@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	gioapp "gioui.org/app"
 	"gioui.org/io/system"
@@ -141,8 +142,9 @@ func (r *runtime) showWindow() {
 	r.win = w
 	inv := w.Invalidate
 	r.invalidate.Store(&inv)
+	started := time.Now()
 	go func() {
-		err := ui.RunWindow(ui.WindowDeps{App: r.app, Store: r.store, Window: w, TrayAvailable: func() bool { return keepAlive(platform.Mobile, r.trayOK.Load()) },
+		err := ui.RunWindow(ui.WindowDeps{App: r.app, Store: r.store, Window: w, KeepAlive: func(closeToTray bool) bool { return keepAlive(platform.Mobile, closeToTray, r.trayOK.Load()) },
 			Logger: r.log, Version: version, DataDir: r.dataDir, OnClosed: func() {
 				r.winMu.Lock()
 				if r.win == w {
@@ -150,14 +152,22 @@ func (r *runtime) showWindow() {
 					r.invalidate.Store(nil)
 				}
 				r.winMu.Unlock()
-				if platform.Mobile {
-					// The process outlives the activity: leave a pending
-					// window for the next activity to pick up.
-					r.showWindow()
-				}
 			}})
 		if err != nil {
 			r.log.Error("window", "err", err)
+		}
+		if platform.Mobile {
+			// The process outlives the activity: leave a pending window for
+			// the next activity, unless shutting down or respawning too fast.
+			delay, ok := respawnPolicy(r.ctx.Err(), time.Since(started))
+			if ok {
+				if delay > 0 {
+					time.Sleep(delay)
+				}
+				if r.ctx.Err() == nil {
+					r.showWindow()
+				}
+			}
 		}
 	}()
 }
@@ -191,7 +201,22 @@ func dataDirFor(flagDir string, env map[string]string, log *slog.Logger) string 
 
 // keepAlive reports whether closing the window must not quit the app: always
 // on mobile, and on desktop when a tray can bring the window back.
-func keepAlive(mobile, trayAvailable bool) bool { return mobile || trayAvailable }
+func keepAlive(mobile, closeToTray, trayAvailable bool) bool {
+	return mobile || (closeToTray && trayAvailable)
+}
+
+// respawnPolicy decides whether to re-create the window on mobile and how
+// long to wait first: never during shutdown, and back off 1s when the
+// previous window lived under a second.
+func respawnPolicy(ctxErr error, lived time.Duration) (delay time.Duration, ok bool) {
+	if ctxErr != nil {
+		return 0, false
+	}
+	if lived < time.Second {
+		return time.Second, true
+	}
+	return 0, true
+}
 
 // androidDataDir is the data directory under Gio's per-app files directory.
 func androidDataDir(gioDataDir string) string { return filepath.Join(gioDataDir, "goti") }
@@ -230,6 +255,7 @@ func main() {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "goti: "+err.Error())
 			ui.ShowFatal("goti: " + err.Error())
+			os.Exit(1)
 		}
 		dataDir = androidDataDir(gd)
 	} else {

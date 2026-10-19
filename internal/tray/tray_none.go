@@ -2,10 +2,10 @@
 
 package tray
 
-// Android has no tray: the foreground-service notification replaces it, and
-// the same stubs apply.
+// Stubs for platforms without a tray. On Android the foreground-service
+// notification replaces the tray.
 //
-// hostAvailable is false on macOS: the tray stays disabled (closing the window
+// On macOS hostAvailable is false: the tray stays disabled (closing the window
 // quits) until a main-thread integration is verified on a Mac. systray's
 // start func (C.nativeStart) creates the NSStatusItem on the calling thread,
 // but Gio's app.Main owns the main thread, so starting it from a goroutine can

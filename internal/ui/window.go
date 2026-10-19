@@ -42,7 +42,10 @@ type WindowDeps struct {
 	App   *app.App
 	Store *state.Store
 	// Explorer builds the folder picker for w; nil uses gioui.org/x/explorer.
-	Explorer      func(w *gioapp.Window) FolderPicker
+	Explorer func(w *gioapp.Window) FolderPicker
+	// KeepAlive reports whether destroying the window must not quit, given
+	// the CloseToTray setting. Nil falls back to CloseToTray && TrayAvailable.
+	KeepAlive     func(closeToTray bool) bool
 	TrayAvailable func() bool
 	// OnClosed runs after the window is gone (nil = no-op).
 	OnClosed func()
@@ -378,7 +381,7 @@ func RunWindow(d WindowDeps) error {
 			if e.Err != nil {
 				c.log.Error("window error", "err", e.Err)
 			}
-			if !(d.App.Settings().CloseToTray && d.TrayAvailable != nil && d.TrayAvailable()) {
+			if quitOnDestroy(d, d.App.Settings().CloseToTray) {
 				SendQuit(d.App.Send, c.log)
 			}
 			if d.OnClosed != nil {
@@ -396,4 +399,12 @@ func RunWindow(d WindowDeps) error {
 			e.Frame(gtx.Ops)
 		}
 	}
+}
+
+// quitOnDestroy decides whether destroying the window quits the app.
+func quitOnDestroy(d WindowDeps, closeToTray bool) bool {
+	if d.KeepAlive != nil {
+		return !d.KeepAlive(closeToTray)
+	}
+	return !(closeToTray && d.TrayAvailable != nil && d.TrayAvailable())
 }

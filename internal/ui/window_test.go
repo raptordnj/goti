@@ -226,3 +226,17 @@ func TestSettingsFolderPick(t *testing.T) {
 		c.pollPicked()
 	}
 }
+
+func TestQuitOnDestroy(t *testing.T) {
+	mobile := WindowDeps{KeepAlive: func(bool) bool { return true }}
+	if quitOnDestroy(mobile, false) {
+		t.Fatal("mobile must never quit on destroy, even with CloseToTray off")
+	}
+	desk := WindowDeps{KeepAlive: func(c bool) bool { return c }}
+	if !quitOnDestroy(desk, false) || quitOnDestroy(desk, true) {
+		t.Fatal("desktop policy wrong")
+	}
+	if !quitOnDestroy(WindowDeps{}, true) {
+		t.Fatal("no tray -> quit")
+	}
+}

@@ -47,4 +47,5 @@ package-linux:
 ANDROID_NDK_ROOT ?= $(lastword $(sort $(wildcard $(ANDROID_HOME)/ndk/*)))
 
 android-vet:
+	@test -x "$(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang" || { echo "android-vet: NDK not found; set ANDROID_HOME (or ANDROID_NDK_ROOT)" >&2; exit 1; }
 	GOOS=android GOARCH=arm64 CGO_ENABLED=1 CC=$(ANDROID_NDK_ROOT)/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang go vet ./...
