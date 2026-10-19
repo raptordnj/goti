@@ -240,3 +240,35 @@ func TestQuitOnDestroy(t *testing.T) {
 		t.Fatal("no tray -> quit")
 	}
 }
+
+func TestSharedURLOpensAdd(t *testing.T) {
+	c, _ := newCtl(true)
+	urls := []string{"https://x.y/a.zip"}
+	c.takeShared = func() string {
+		if len(urls) == 0 {
+			return ""
+		}
+		u := urls[0]
+		urls = urls[1:]
+		return u
+	}
+	c.pollShared(&state.Snapshot{})
+	if c.dialog != dialogAdd || c.add.URLEmpty() {
+		t.Fatalf("dialog %v", c.dialog)
+	}
+	c.dialog = dialogNone
+	c.pollShared(&state.Snapshot{})
+	if c.dialog != dialogNone {
+		t.Fatal("reopened without a new URL")
+	}
+}
+
+func TestAddSubmitCallsOnAdd(t *testing.T) {
+	c, _ := newCtl(true)
+	n := 0
+	c.onAdd = func() { n++ }
+	c.handle(screens.IntentCommand{Cmd: app.AddDownload{URL: "https://a/b"}}, &state.Snapshot{}, time.Unix(1e6, 0))
+	if n != 1 {
+		t.Fatalf("onAdd calls = %d", n)
+	}
+}

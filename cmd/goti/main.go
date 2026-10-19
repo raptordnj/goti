@@ -23,6 +23,7 @@ import (
 	"github.com/raptordnj/goti/internal/domain"
 	"github.com/raptordnj/goti/internal/downloader"
 	"github.com/raptordnj/goti/internal/events"
+	"github.com/raptordnj/goti/internal/mobile"
 	"github.com/raptordnj/goti/internal/persistence"
 	"github.com/raptordnj/goti/internal/platform"
 	"github.com/raptordnj/goti/internal/ratelimit"
@@ -53,6 +54,9 @@ type runtime struct {
 	invalidate atomic.Pointer[func()]
 	// trayOK is set once the system tray is up.
 	trayOK atomic.Bool
+
+	// onAdd runs after each Add submit (Android: notification permission once).
+	onAdd func()
 
 	winMu sync.Mutex
 	win   *gioapp.Window // the open window, nil when closed to tray
@@ -145,6 +149,7 @@ func (r *runtime) showWindow() {
 	started := time.Now()
 	go func() {
 		err := ui.RunWindow(ui.WindowDeps{App: r.app, Store: r.store, Window: w, KeepAlive: func(closeToTray bool) bool { return keepAlive(platform.Mobile, closeToTray, r.trayOK.Load()) },
+			TakeSharedURL: mobile.DefaultInbox.TakeSharedURL, OnAddSubmit: r.onAdd,
 			Logger: r.log, Version: version, DataDir: r.dataDir, OnClosed: func() {
 				r.winMu.Lock()
 				if r.win == w {
@@ -299,6 +304,10 @@ func main() {
 			rt.trayOK.Store(ok)
 			trayStop <- stop
 		}()
+	}
+	if platform.Mobile {
+		rt.onAdd = mobile.Start(mobile.Deps{Ctx: rt.ctx, Load: rt.store.Load, KV: rt.db, Send: rt.app.Send,
+			Invalidate: rt.invalidateWindow, Log: rt.log})
 	}
 	rt.showWindow()
 	gioapp.Main()

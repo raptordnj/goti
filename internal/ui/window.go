@@ -55,6 +55,11 @@ type WindowDeps struct {
 	Logger *slog.Logger
 	// Version and DataDir are shown in Settings > About.
 	Version, DataDir string
+	// TakeSharedURL returns a URL shared into the app once (Android), or
+	// "". Checked each frame; non-empty opens the Add dialog prefilled.
+	TakeSharedURL func() string
+	// OnAddSubmit runs after each Add submit (nil = no-op).
+	OnAddSubmit func()
 }
 
 type dialogKind int
@@ -103,6 +108,9 @@ type controller struct {
 	wantClip bool
 	clipReq  bool
 	pickBusy bool
+
+	takeShared func() string
+	onAdd      func()
 }
 
 func newController(send func(app.Command) bool, invalidate func()) *controller {
@@ -172,6 +180,17 @@ func (c *controller) openAdd(prefill string, snap *state.Snapshot) {
 	c.dialog, c.addPending, c.lastAddErr = dialogAdd, false, ""
 }
 
+// pollShared opens the Add dialog for a URL shared into the app.
+func (c *controller) pollShared(snap *state.Snapshot) {
+	if c.takeShared == nil {
+		return
+	}
+	if u := c.takeShared(); u != "" {
+		c.openAdd(u, snap)
+		c.wantClip = false
+	}
+}
+
 // handle executes one intent.
 func (c *controller) handle(in screens.Intent, snap *state.Snapshot, now time.Time) {
 	switch in := in.(type) {
@@ -182,6 +201,9 @@ func (c *controller) handle(in screens.Intent, snap *state.Snapshot, now time.Ti
 		}
 		switch cmd := in.Cmd.(type) {
 		case app.AddDownload:
+			if c.onAdd != nil {
+				c.onAdd()
+			}
 			c.addPending, c.addBase = true, snap.AddResultSeq
 			c.addKnown = make(map[string]bool, len(snap.Tasks))
 			for _, v := range snap.Tasks {
@@ -310,6 +332,7 @@ func (c *controller) afterResults(snap *state.Snapshot) {
 // frame lays out one frame.
 func (c *controller) frame(gtx layout.Context, th *theme.Theme, snap *state.Snapshot, now time.Time) {
 	c.pollPicked()
+	c.pollShared(snap)
 	c.afterResults(snap)
 	c.syncOptimistic(snap)
 	view := *snap
@@ -365,6 +388,7 @@ func RunWindow(d WindowDeps) error {
 		picker = explorer.NewExplorer(w)
 	}
 	c := newController(d.App.Send, w.Invalidate)
+	c.takeShared, c.onAdd = d.TakeSharedURL, d.OnAddSubmit
 	c.picker = picker
 	c.settings.Version, c.settings.DataDir = d.Version, d.DataDir
 	if d.Logger != nil {
