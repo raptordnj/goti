@@ -64,7 +64,6 @@ func TestOnceFunc(t *testing.T) {
 	}
 }
 
-
 func TestInboxQueuesUntilBound(t *testing.T) {
 	i := &Inbox{}
 	i.Dispatch("pause_all")
@@ -104,5 +103,27 @@ func TestInboxQueueKeepsOrder(t *testing.T) {
 	}
 	if _, ok := sent[1].(app.ResumeAll); !ok {
 		t.Fatalf("order %#v", sent)
+	}
+}
+
+func TestInboxAddNow(t *testing.T) {
+	var sent []app.Command
+	i := &Inbox{}
+	i.AddNow("http://h/early.bin") // unbound: queued until Bind
+	i.Bind(func(c app.Command) bool { sent = append(sent, c); return true }, nil, nil)
+	i.AddNow("http://h/blob.bin")
+	i.AddNow("")
+	want := []string{"http://h/early.bin", "http://h/blob.bin"}
+	if len(sent) != len(want) {
+		t.Fatalf("sent %#v", sent)
+	}
+	for k, w := range want {
+		a, ok := sent[k].(app.AddDownload)
+		if !ok || a.URL != w || a.DestDir != "" {
+			t.Errorf("sent[%d] = %#v, want AddDownload{URL:%q}", k, sent[k], w)
+		}
+	}
+	if got := i.TakeSharedURL(); got != "" {
+		t.Errorf("AddNow must not open the Add sheet, shared = %q", got)
 	}
 }

@@ -22,6 +22,7 @@ type Inbox struct {
 	invalidate func()
 	log        *slog.Logger
 	pending    []string // actions received before Bind, oldest first
+	adds       []string // AddNow URLs received before Bind, oldest first
 }
 
 // maxPending caps actions queued before the app is bound (newest kept).
@@ -35,10 +36,11 @@ var DefaultInbox = &Inbox{}
 // with a send.
 func (i *Inbox) Bind(send func(app.Command) bool, invalidate func(), log *slog.Logger) {
 	i.mu.Lock()
-	var flush []string
+	var flush, adds []string
 	if send != nil {
 		i.send = send
 		flush, i.pending = i.pending, nil
+		adds, i.adds = i.adds, nil
 	}
 	if invalidate != nil {
 		i.invalidate = invalidate
@@ -49,6 +51,9 @@ func (i *Inbox) Bind(send func(app.Command) bool, invalidate func(), log *slog.L
 	i.mu.Unlock()
 	for _, name := range flush {
 		i.Action(name, send)
+	}
+	for _, u := range adds {
+		i.add(u, send)
 	}
 }
 
@@ -105,6 +110,33 @@ func (i *Inbox) SetSharedURL(u string) {
 	i.mu.Unlock()
 	if inv != nil {
 		inv()
+	}
+}
+
+// AddNow adds u as a download immediately (no Add sheet), using the default
+// download folder. Used by the debug-only add intent of the smoke test.
+// URLs received before Bind are queued (newest maxPending kept).
+func (i *Inbox) AddNow(u string) {
+	if u == "" {
+		return
+	}
+	i.mu.Lock()
+	send := i.send
+	if send == nil {
+		i.adds = append(i.adds, u)
+		if len(i.adds) > maxPending {
+			i.adds = i.adds[len(i.adds)-maxPending:]
+		}
+		i.mu.Unlock()
+		return
+	}
+	i.mu.Unlock()
+	i.add(u, send)
+}
+
+func (i *Inbox) add(u string, send func(app.Command) bool) {
+	if !send(app.AddDownload{URL: u}) {
+		i.logger().Warn("add not delivered", "url", u)
 	}
 }
 

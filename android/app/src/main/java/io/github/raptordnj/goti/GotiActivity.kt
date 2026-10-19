@@ -2,6 +2,7 @@ package io.github.raptordnj.goti
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.os.Bundle
 import android.widget.FrameLayout
@@ -28,9 +29,18 @@ class GotiActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.action == Intent.ACTION_SEND) {
-            ShareIntents.extractUrl(intent.getStringExtra(Intent.EXTRA_TEXT))?.let { Bridge.nativeSharedUrl(it) }
+        when (intent.action) {
+            Intent.ACTION_SEND ->
+                ShareIntents.extractUrl(intent.getStringExtra(Intent.EXTRA_TEXT))?.let { Bridge.nativeSharedUrl(it, false) }
+            // Debug builds only (alias in src/debug manifest): add without the sheet, for the smoke test.
+            DEBUG_ADD -> if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                ShareIntents.extractUrl(intent.dataString)?.let { Bridge.nativeSharedUrl(it, true) }
+            }
         }
+    }
+
+    companion object {
+        const val DEBUG_ADD = "io.github.raptordnj.goti.debug.ADD"
     }
 
     override fun onDestroy() {

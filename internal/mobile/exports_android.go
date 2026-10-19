@@ -19,8 +19,13 @@ func Java_io_github_raptordnj_goti_Bridge_nativeAction(env *C.JNIEnv, cls C.jcla
 }
 
 //export Java_io_github_raptordnj_goti_Bridge_nativeSharedUrl
-func Java_io_github_raptordnj_goti_Bridge_nativeSharedUrl(env *C.JNIEnv, cls C.jclass, url C.jstring) {
-	if u := goString(env, url); u != "" {
+func Java_io_github_raptordnj_goti_Bridge_nativeSharedUrl(env *C.JNIEnv, cls C.jclass, url C.jstring, autoAdd C.jboolean) {
+	u := goString(env, url)
+	switch {
+	case u == "":
+	case autoAdd != 0:
+		DefaultInbox.AddNow(u)
+	default:
 		DefaultInbox.SetSharedURL(u)
 	}
 }

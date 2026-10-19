@@ -21,7 +21,7 @@ object Bridge {
     @Volatile var activity: WeakReference<GotiActivity>? = null
 
     @JvmStatic external fun nativeAction(name: String)
-    @JvmStatic external fun nativeSharedUrl(url: String)
+    @JvmStatic external fun nativeSharedUrl(url: String, autoAdd: Boolean)
     @JvmStatic external fun nativeServiceTimeout()
 
     @JvmStatic fun startService(ctx: Context) {

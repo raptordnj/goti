@@ -68,6 +68,12 @@ The images are rendered headlessly from fixtures (`make screenshots`); the
 full set, including narrow layouts, dialogs, the row menu and toasts, is in
 [`docs/screenshots/`](docs/screenshots/).
 
+On Android (captured on a device):
+
+| Main screen | Notification |
+|---|---|
+| <img src="docs/screenshots/android-main.png" alt="Goti on Android, main screen" width="285"> | <img src="docs/screenshots/android-notification.png" alt="Goti's ongoing download notification" width="285"> |
+
 ### Build dependencies
 
 - Linux (Arch): `pacman -S wayland libxkbcommon libxcursor libxfixes vulkan-headers mesa`
@@ -362,6 +368,40 @@ scripts/package-android.sh 0.2.0 dist        # signed release APK
 `package-android.sh` reads the signing key from `ANDROID_KEYSTORE_B64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`;
 CI takes them from repository secrets of the same names.
+
+#### Device smoke test
+
+Run before tagging a release (CI does not run an emulator). It needs a
+running emulator or VM on `adb` and a debug APK:
+
+```sh
+make apk-debug
+scripts/android-smoke.sh android/app/build/outputs/apk/debug/app-debug.apk
+# AVD emulator instead of Genymotion:
+ADB_SERIAL=emulator-5554 HOST_IP=10.0.2.2 scripts/android-smoke.sh app-debug.apk
+```
+
+It serves a 20 MiB file from the host, adds it through the debug-only
+`io.github.raptordnj.goti.debug.ADD` intent (absent from release builds) with
+notifications denied, and checks: the dataSync service is in the foreground
+while downloading; Back then relaunch resumes the activity in the same
+process; the file lands in Downloads/Goti and the service stops afterwards;
+after the process is killed mid-download the service restarts in the
+foreground and the download finishes. Each check prints PASS or FAIL.
+
+Manual checks (not scripted):
+
+- Share a link from a browser to Goti: the Add sheet opens with the URL.
+- First Add asks for the notification permission; the ongoing notification
+  shows progress, Pause all / Resume all work, and Open brings the app back.
+- A finished download shows a "Downloads complete" notification and opens /
+  shares from the row menu with an installed viewer.
+- Rotate during a download and switch light/dark theme: layout and system
+  bar colours follow, the download keeps going.
+- Swipe Goti away from recents during a download, then reopen it from the
+  launcher: the list shows the running download.
+- Airplane mode mid-download: the offline banner shows and the download
+  resumes when the network returns.
 
 ## Local smoke benchmarks
 
