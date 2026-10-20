@@ -181,7 +181,9 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: goti-android
-          path: dist/*.apk
+          path: |
+            dist/*.apk
+            dist/*.aar
           if-no-files-found: error
 
   release:

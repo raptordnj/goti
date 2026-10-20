@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # package-android.sh VERSION OUTDIR builds and signs the release APK and copies it to
-# OUTDIR/Goti_<VERSION>_android_universal.apk.
+# OUTDIR/Goti_<VERSION>_android_universal.apk, plus the Go/Gio library as
+# OUTDIR/goti_<VERSION>_android.aar.
 # Requires ANDROID_KEYSTORE_B64 (base64 keystore), ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
 # ANDROID_KEY_PASSWORD, ANDROID_HOME, gogio on PATH and apksigner (build-tools) available.
 set -euo pipefail
@@ -27,3 +28,4 @@ fi
 
 mkdir -p "$OUTDIR"
 cp "$apk" "$OUTDIR/Goti_${VERSION}_android_universal.apk"
+cp android/app/libs/goti.aar "$OUTDIR/goti_${VERSION}_android.aar"
